@@ -216,6 +216,38 @@ function love.update(dt)
 			end
 		end
 
+		-- canMult
+		if selection[2][1] ~= nil then
+			local pos1 = {math.min(selection[1][2], selection[2][2]), math.min(selection[2][1], selection[1][1])}
+			local pos2 = {math.max(selection[1][2], selection[2][2]), math.max(selection[2][1], selection[1][1])}
+
+			local pass = true
+			local first = channels[pos1[2]].slots[pos1[1]]
+			for ih = pos1[2], pos2[2] do
+				for iw = pos1[1], pos2[1] do
+					if first ~= channels[ih].slots[iw] then
+						pass = false
+						break
+					end
+				end
+				if pass == false then
+					break
+				end
+			end
+			if not pass then
+				canMult = false
+			end
+		end
+
+		-- select
+		if not love.mouse.isDown(1) then
+			if selection[1][1] == selection[2][1] then
+				if selection[1][2] == selection[2][2] then
+					selection = {{}, {}}
+				end
+			end
+		end
+
 		-- selected max
 		if selectedPat[1] then
 			selectedPat[1] = math.min(selectedPat[1], #channels)
@@ -243,11 +275,6 @@ function love.update(dt)
 			-- scrolling/selection reset
 			if popup == "" and not settingsWindow then
 				if hoverPattern then
-					if love.mouse.isDown(1) then
-						if selection[2][1] ~= nil then
-							selection = {{}, {}}
-						end
-					end
 					if not isScrolling then
 						if love.mouse.isDown(2) then 
 							isScrolling = true
@@ -280,6 +307,8 @@ end
 
 -- draw
 function love.draw()
+	hover = ""
+
 	-- song editor
 	if window == windows.song then
 		------------------------------
@@ -432,15 +461,22 @@ function love.draw()
 			-- selection
 			if selection[1][1] ~= nil then
 				local x, y, h, w
-				if selection[2][1] == nil then
+				if love.mouse.isDown(1) and hoverPattern then
 					if string.match(hover, "(ch)%d+") == "ch" then
 						ph, pw = string.match(hover, "ch(%d+)sl(%d+)")
 					end
+					ph = tonumber(ph)
+					pw = tonumber(pw)
+					log = ph .. " " .. pw
+					selection[2] = {ph, pw}
+				end
+				if selection[2][1] == nil then
 					if ph and pw then
 						x = (pat+out)*(selection[1][2])+scrollApp[1]+1
 						y = (pat+out)*(selection[1][1])+out*2+scrollApp[2]
 						w = (pat+out)*(pw)+scrollApp[1]+1 - x
 						h = (pat+out)*(ph)+out*2+scrollApp[2] - y - out
+						
 					end
 				else
 					x = (pat+out)*(selection[1][2])+scrollApp[1]+1
@@ -1393,8 +1429,7 @@ function love.mousereleased(_, _, b)
 	if b == 1 then
 		if popup == "" and not settingsWindow then
 			if hover == "" or string.match(hover, "(ch)%d+") == "ch" then
-				selection[2] = {}
-				if selection[1][1] ~= nil then
+				if selection[1][1] ~= nil and selection[2][1] == nil then
 					selection[2] = {tonumber(ph), tonumber(pw)}
 					if selection[1][1] == selection[2][1] then
 						if selection[1][2] == selection[2][2] then
@@ -1405,9 +1440,6 @@ function love.mousereleased(_, _, b)
 					if string.match(hover, "(ch)%d+") == "ch" then
 						ph, pw = string.match(hover, "ch(%d+)sl(%d+)")
 					end
-				end
-				if selection[2][1] == nil then
-					selection[1] = {}
 				end
 			end
 		end
@@ -1444,7 +1476,9 @@ function love.mousepressed(xx, yy, b)
 		elseif string.match(hover, "(ch)%d+") == "ch" then
 			if hoverPattern then
 				if selection[1][1] ~= nil then
-					selection = {{}, {}}
+					if not love.mouse.isDown(1) then
+						selection = {{}, {}}
+					end
 				end
 				local ph, pw = string.match(hover, "ch(%d+)sl(%d+)")
 				canMult = false
