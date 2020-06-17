@@ -8,6 +8,6 @@ Welcome to ChipBox's repository, I guess.
 
 ChipBox is a desktop DAW (Digital Audio Workstation) heavily inspired by BeepBox - "an online tool for sketching and sharing instrumental melodies" developed by John Nesky. It will keep beebox's conveniency with a more modern UI and the features you'd find in any other DAW.
 
-ChipBox is currently under active development and will be released- well... someday, definitely.
+ChipBox is currently under active development and will be fully released- well... someday, definitely.
 
 There's not much I can show you right now (sorry), though you can watch my progress here or on the official BeepBox Discord. 
