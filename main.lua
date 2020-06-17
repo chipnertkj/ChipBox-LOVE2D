@@ -467,8 +467,13 @@ function love.draw()
 					end
 					ph = tonumber(ph)
 					pw = tonumber(pw)
-					log = ph .. " " .. pw
 					selection[2] = {ph, pw}
+				end
+				if pw == nil then
+					pw = selectedPat[2]
+				end
+				if ph == nil then
+					ph = selectedPat[1]
 				end
 				if selection[2][1] == nil then
 					if ph and pw then
