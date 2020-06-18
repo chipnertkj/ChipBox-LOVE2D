@@ -453,7 +453,7 @@ function love.draw()
 			-- highlight
 			if selectedPat[1] ~= nil then
 				love.graphics.setBlendMode("add")
-				love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.patterns/25)
+				love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.patterns/15)
 				love.graphics.rectangle("fill", -out/2, (pat+out)*(selectedPat[1]-1)+out*1.5+scrollApp[2], channelCanvasSize[1]+pat+out, pat+out)
 				love.graphics.setBlendMode("alpha")
 			end
@@ -1310,8 +1310,9 @@ function love.keypressed(key)
 		elseif key == "escape" then
 			if settingsWindow then
 				popup = popups.saveSettings
-			else
+			elseif popup ~= "" then
 				popup = ""
+			else
 				selection = {{}, {}}
 			end
 		elseif key == "w" then
@@ -1338,7 +1339,11 @@ function love.keypressed(key)
 			end
 		elseif key == "a" then
 			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-				selection = {{1, 1}, {#channels, song.length}}
+				if popup == "" and not settingsWindow then
+					if #channels > 0 then
+						selection = {{1, 1}, {#channels, song.length}}
+					end
+				end
 			end
 		elseif key == "n" then
 			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
@@ -1516,16 +1521,21 @@ function love.mousepressed(xx, yy, b)
 			if selection[2][2] ~= nil and selection[1][1] ~= selection[2][1] then
 				local start = math.min(selection[1][1], selection[2][1])
 				local max = math.max(selection[1][1], selection[2][1])
-				for i = start, max do
-					local t = channels[i].name
-					AddUndo(datatypes.removeChannel, {i, t})
+				for i = max, start, -1 do
+					local d = {}
+					for iw = 1, song.length do
+						d[iw] = channels[i].slots[iw]
+					end
+					AddUndo(datatypes.removeChannel, {i, channels[i].name, d})
 					table.remove(channels, i)
 				end
 			elseif selectedPat[1] ~= nil then
-				AddUndo(datatypes.removeChannel, {selectedPat[1], channels[selectedPat[1]].name})
+				local d = {}
+				for iw = 1, song.length do
+					d[iw] = channels[selectedPat[1]].slots[iw]
+				end
+				AddUndo(datatypes.removeChannel, {selectedPat[1], channels[selectedPat[1]].name, d})
 				table.remove(channels, selectedPat[1])
-				log = ""
-				log = log .. selectedPat[1] .. "\n"
 				selectedPat[1] = #channels
 				if selectedPat[1] == 0 then
 					selectedPat = {}
@@ -1536,6 +1546,7 @@ function love.mousepressed(xx, yy, b)
 			if selectedPat[1] == 0 then
 				selectedPat = {}
 			end
+			ScrollUpdate()
 		elseif hover == dropdowns.Edit[15] then	-- Song Settings
 			if popup == "" and not settingsWindow then
 				popup = popups.songSettings
@@ -1659,6 +1670,10 @@ function Undo()
 			table.remove(channels, this.data[1])
 		elseif this.datatype == datatypes.removeChannel then
 			AddChannel(true, this.data[2], this.data[1])
+			for i = 1, song.length do
+				if this.data[3][i] == nil then break end
+				channels[this.data[1]].slots[i] = this.data[3][i]
+			end
 		elseif this.datatype == datatypes.pattern then
 			local pos = this.data[1]
 			selectedPat[1] = pos[1]
@@ -1694,7 +1709,11 @@ function Redo()
 		if this.datatype == datatypes.addChannel then
 			AddChannel(true, this.data[2])
 		elseif this.datatype == datatypes.removeChannel then
-			table.remove(channels, this.data[1])
+			local d = {}
+				for iw = 1, song.length do
+					d[iw] = channels[this.data[1]].slots[iw]
+				end
+			table.remove(channels, this.data[1], d)
 		elseif this.datatype == datatypes.pattern then
 			local pos = this.data[1]
 			selectedPat[1] = pos[1]
