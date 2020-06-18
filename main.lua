@@ -1,3 +1,32 @@
+function KeybindSet(keybind, key, ctrl, shift, alt)
+	keybinds[keybind] = {key, ctrl, shift, alt}
+end
+
+function KeybindPass(keybind)
+	if keybinds[keybind][2] then
+		if not (love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")) then
+			return false
+		end
+	elseif love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+		return false
+	end
+	if keybinds[keybind][3] then
+		if not (love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")) then
+			return false
+		end
+	elseif love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+		return false
+	end
+	if keybinds[keybind][3] then
+		if not (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
+			return false
+		end
+	elseif love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then
+		return false
+	end
+	return true
+end
+
 function love.load()
 	-- reset
 	startTime = love.timer.getTime()
@@ -52,7 +81,7 @@ function love.load()
 	undos = {}
 	redos = {}
 	moveSelect = false
-	keyboardModes = {normal = "normal", note = "note"}
+	keyboardModes = {normal = 1, note = 2}
 	keyboardMode = keyboardModes.normal
 	dropdown = ""
 	menuPos = {}
@@ -67,9 +96,32 @@ function love.load()
 	if setup == nil then
 		-- tables
 		dropdowns = {
+				--	1				2			3			4		5		6			7		8			9		10		11
 			File = {"New File", "Open File", "Open Recent", "-", "Save", "Save As...", "-", "Auto Save", "Settings", "-", "Exit"},
-			Edit = {"Undo", "Redo", "-", "Cut", "Copy", "Paste", "-", "Add Channel", "Remove Selected Channels", "-", "Insert Bar Before", "Insert Bar After", "Remove Bar", "-", "Song Settings"}
+				--	1		2		3		4		5		6		7		8		9		10				11						12				13				14				15			16		17
+			Edit = {"Undo", "Redo", "-", "Cut", "Copy", "Paste", "-", "Select All", "-", "Add Channel", "Remove Selected Channels", "-", "Insert Bar Before", "Insert Bar After", "Remove Bar", "-", "Song Settings"}
 		}
+
+		keybinds = {}
+		KeybindSet(dropdowns.File[1], "n", true)
+		KeybindSet(dropdowns.File[2], "o", true)
+		KeybindSet(dropdowns.File[3], "o", true, true)
+		KeybindSet(dropdowns.File[5], "s", true)
+		KeybindSet(dropdowns.File[6], "s", true, true)
+		KeybindSet(dropdowns.File[9], ",", true)
+		KeybindSet(dropdowns.File[11], "f4", false, false, true)
+		KeybindSet(dropdowns.Edit[1], "z", true)
+		KeybindSet(dropdowns.Edit[2], "z", true, true)
+		KeybindSet(dropdowns.Edit[4], "x", true)
+		KeybindSet(dropdowns.Edit[5], "x", true)
+		KeybindSet(dropdowns.Edit[6], "v", true)
+		KeybindSet(dropdowns.Edit[10], "w", true)
+		KeybindSet(dropdowns.Edit[11], "delete", true, true)
+		KeybindSet(dropdowns.Edit[13], "left", false, false, true)
+		KeybindSet(dropdowns.Edit[14], "right", false, false, true)
+		KeybindSet(dropdowns.Edit[15], "delete", true)
+		KeybindSet(dropdowns.Edit[17], "q", true)
+
 
 		windows = {
 			song = "Song"
@@ -118,10 +170,15 @@ function love.load()
 
 		-- undo/redo datatypes
 		datatypes = {
-			pattern = "pattern",
-			patterns = "patterns",
-			addChannel = "addChannel",
-			removeChannel = "removeChannel",
+			pattern = 1,
+			patterns = 2,
+			addChannel = 3,
+			removeChannel = 4,
+		}
+
+		-- channel types
+		channelTypes = {
+			chip = 1
 		}
 
 		-- sfx and sprites
@@ -141,10 +198,10 @@ function love.load()
 		buttons = {}
 		--popups
 		popups = {
-			addChannel = "addChannel",
-			quit = "quit",
-			songSettings = "settings",
-			saveSettings = "saveSettings"
+			addChannel = 1,
+			quit = 2,
+			songSettings = 3,
+			saveSettings = 4
 		}
 		
 		-- resolution
@@ -823,6 +880,11 @@ function DrawSettings()
 	-- app
 	if settingsWindow then
 		-- on
+		if popup ~= "" then
+			if popup ~= popups.saveSettings then
+				popup = ""
+			end
+		end
 		buttonCenter(x, y+h/2.4, out*16, out*5, "saveSettings")
 		delta.popupSaveSettings = Approach(delta.popupSaveSettings, 1, math.abs(delta.popupSaveSettings - 1)/2)
 		
@@ -870,7 +932,7 @@ function DrawMenuTop(sss)
 	barx = barx + out*3 + www*scale
 end
 
-function PrintOutline(t, x, y, sx, sy, offset)
+function PrintOutline(t, x, y, sx, sy, offset)	
 	love.graphics.setColor(theme.outline)
 	love.graphics.print(t, x-offset, y-offset, 0, sx, sy)
 	love.graphics.print(t, x-offset, y+offset, 0, sx, sy)
@@ -905,11 +967,18 @@ function AddChannel(noReset, t, n)
 				table.insert(channels, cch,
 				{
 					name = t,
+					type = channelTypes.chip,
 					slots = {},
 					patterns = {},
-					chorus = {phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
-					compressor = false,
-					distortion = {gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0}
+					instrument = 1,
+					instruments = {
+						{	-- 1
+							chorus = {phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
+							compressor = false,
+							distortion = {gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0}
+						}
+					}
+					
 				})
 				delta.patterns = 0
 				popup = ""
@@ -1300,12 +1369,10 @@ function love.keypressed(key)
 				timer = 0
 			end
 		elseif key == "left" then
-			MovePattern(key)
+			if not KeybindPass(dropdowns.Edit[13]) then MovePattern(key) else AddBar(selectedPat[2]) end
 		elseif key == "right" then
-			MovePattern(key)
-		elseif key == "up" then
-			MovePattern(key)
-		elseif key == "down" then
+			if not KeybindPass(dropdowns.Edit[14]) then MovePattern(key) else AddBar(selectedPat[2]+1) end
+		elseif key == "up" or key == "down" then
 			MovePattern(key)
 		elseif key == "escape" then
 			if settingsWindow then
@@ -1315,22 +1382,19 @@ function love.keypressed(key)
 			else
 				selection = {{}, {}}
 			end
-		elseif key == "w" then
-			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-				if popup ~= popups.addChannel and #channels < channelsMax then
-					popup = popups.addChannel
-				end
+		elseif key == keybinds[dropdowns.Edit[10]][1] then		-- add channel
+			if not KeybindPass(dropdowns.Edit[10]) then return end
+			if popup ~= popups.addChannel and #channels < channelsMax then
+				popup = popups.addChannel
 			end
-		elseif key == "q" then
-			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-				if popup == "" and not settingsWindow then
-					popup = popups.songSettings
-				end
+		elseif key == keybinds[dropdowns.Edit[17]][1] then	-- channel settings
+			if not KeybindPass(dropdowns.Edit[17]) then return end
+			if popup == "" and not settingsWindow then
+				popup = popups.songSettings
 			end
-		elseif key == "," then
-			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-				settingsWindow = true
-			end
+		elseif key == keybinds[dropdowns.File[9]][1] then	-- settings
+			if not KeybindPass(dropdowns.File[9]) then return end
+			settingsWindow = true
 		elseif key == "return" then
 			if textSelected then
 				if popup == popups.addChannel then
@@ -1375,10 +1439,6 @@ function love.keypressed(key)
 			else
 				Undo()
 			end
-		end
-	elseif key == "y" then
-		if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-			Redo()
 		end
 	end
 end
@@ -1478,7 +1538,7 @@ function love.mousepressed(xx, yy, b)
 	end
 	if b == 1 then
 		if hover == "addChannel" then
-			popup = "addChannel"
+			popup = popups.addChannel
 		elseif hover == "textInput" then
 			textSelected = true
 		elseif hover == "nameChannel" then
@@ -1518,35 +1578,7 @@ function love.mousepressed(xx, yy, b)
 		elseif hover == dropdowns.Edit[8] then	-- Add Channel
 			popup = popups.addChannel
 		elseif hover == dropdowns.Edit[9] then	-- Remove Channels
-			if selection[2][2] ~= nil and selection[1][1] ~= selection[2][1] then
-				local start = math.min(selection[1][1], selection[2][1])
-				local max = math.max(selection[1][1], selection[2][1])
-				for i = max, start, -1 do
-					local d = {}
-					for iw = 1, song.length do
-						d[iw] = channels[i].slots[iw]
-					end
-					AddUndo(datatypes.removeChannel, {i, channels[i].name, d})
-					table.remove(channels, i)
-				end
-			elseif selectedPat[1] ~= nil then
-				local d = {}
-				for iw = 1, song.length do
-					d[iw] = channels[selectedPat[1]].slots[iw]
-				end
-				AddUndo(datatypes.removeChannel, {selectedPat[1], channels[selectedPat[1]].name, d})
-				table.remove(channels, selectedPat[1])
-				selectedPat[1] = #channels
-				if selectedPat[1] == 0 then
-					selectedPat = {}
-				end
-			end
-			selection = {{}, {}}
-			selectedPat[1] = #channels
-			if selectedPat[1] == 0 then
-				selectedPat = {}
-			end
-			ScrollUpdate()
+			RemoveChannels()
 		elseif hover == dropdowns.Edit[15] then	-- Song Settings
 			if popup == "" and not settingsWindow then
 				popup = popups.songSettings
@@ -1579,6 +1611,38 @@ function HSL(h, s, l, a)
 	elseif h < 5 then r,g,b = x,0,c
 	else              r,g,b = c,0,x
 	end return (r+m)*255,(g+m)*255,(b+m)*255,a
+end
+
+function RemoveChannels()
+	if selection[2][2] ~= nil and selection[1][1] ~= selection[2][1] then
+		local start = math.min(selection[1][1], selection[2][1])
+		local max = math.max(selection[1][1], selection[2][1])
+		for i = max, start, -1 do
+			local d = {}
+			for iw = 1, song.length do
+				d[iw] = channels[i].slots[iw]
+			end
+			AddUndo(datatypes.removeChannel, {i, channels[i].name, d})
+			table.remove(channels, i)
+		end
+	elseif selectedPat[1] ~= nil then
+		local d = {}
+		for iw = 1, song.length do
+			d[iw] = channels[selectedPat[1]].slots[iw]
+		end
+		AddUndo(datatypes.removeChannel, {selectedPat[1], channels[selectedPat[1]].name, d})
+		table.remove(channels, selectedPat[1])
+		selectedPat[1] = #channels
+		if selectedPat[1] == 0 then
+			selectedPat = {}
+		end
+	end
+	selection = {{}, {}}
+	selectedPat[1] = #channels
+	if selectedPat[1] == 0 then
+		selectedPat = {}
+	end
+	ScrollUpdate()
 end
 
 function love.wheelmoved(_, y)
@@ -1713,7 +1777,7 @@ function Redo()
 				for iw = 1, song.length do
 					d[iw] = channels[this.data[1]].slots[iw]
 				end
-			table.remove(channels, this.data[1], d)
+			table.remove(channels, this.data[1])
 		elseif this.datatype == datatypes.pattern then
 			local pos = this.data[1]
 			selectedPat[1] = pos[1]
