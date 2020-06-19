@@ -1,3 +1,7 @@
+function Clamp(value, min, max)
+	return math.min(max, math.max(value, min))
+end
+
 function KeybindSet(keybind, key, ctrl, shift, alt)
 	keybinds[keybind] = {key, ctrl, shift, alt}
 end
@@ -17,7 +21,7 @@ function KeybindPass(keybind)
 	elseif love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
 		return false
 	end
-	if keybinds[keybind][3] then
+	if keybinds[keybind][4] then
 		if not (love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt")) then
 			return false
 		end
@@ -30,6 +34,7 @@ end
 function love.load()
 	-- reset
 	startTime = love.timer.getTime()
+	cursorReset = false
 
 	-- song setup
 	channels = {}
@@ -56,16 +61,18 @@ function love.load()
 		shadowR = 0,
 		shadowU = 0,
 		shadowD = 0,
-		instruments = 0,
+		instruments = 1,
 	}
 
 	settings = {
 		shaders = true,
 		undos = 128,
 		resizable = false,
-		autoSave = false
+		autoSave = false,
+		sliderSmoothing = 3
 	}
 
+	sliders = 0
 	timer = 0
 	hover = ""
 	popup = ""
@@ -86,6 +93,8 @@ function love.load()
 	dropdown = ""
 	menuPos = {}
 	settingsWindow = false
+	slider = nil
+	sliderScroll = 0
 
 	cc = {}
 	for i = 1, channelsMax do
@@ -174,6 +183,14 @@ function love.load()
 			patterns = 2,
 			addChannel = 3,
 			removeChannel = 4,
+			addBar = 5,
+			removeBar = 6,
+		}
+
+		-- cursors
+		cursor = {
+			arrow = love.mouse.getSystemCursor("arrow"),
+			sizeew = love.mouse.getSystemCursor("sizewe")
 		}
 
 		-- channel types
@@ -189,6 +206,8 @@ function love.load()
 		s_highlight1 = love.graphics.newImage(dirSprites .. "highlight0.png")
 		s_highlight3 = love.graphics.newImage(dirSprites .. "highlight3.png")
 		s_shadow = love.graphics.newImage(dirSprites .. "shadow.png")
+		s_shadow_rect = love.graphics.newImage(dirSprites .. "shadow_rect.png")
+		s_shadow_box = love.graphics.newImage(dirSprites .. "shadow_box.png")
 		s_channel = love.graphics.newImage(dirSprites .. "channel.png")
 		u_sfx = love.audio.newSource("sfx.wav", "static")
 		font26n = love.graphics.newFont("timeburnernormal.ttf", 26)
@@ -227,7 +246,7 @@ function love.update(dt)
 	-- song editor
 	if window == windows.song then
 		-- debug
-		if debug and false then
+		if debug then
 			-- undo/redo log
 			log = "undo:"
 			for key, value in pairs(undos) do
@@ -242,7 +261,7 @@ function love.update(dt)
 					log = log .. " x" .. value.data[1][1]
 					log = log .. " x" .. value.data[1][2]
 				else
-					log = log .. value.data[#value.data]
+					log = log .. tostring(value.data[#value.data])
 				end
 			end
 			log = log .. "\nredo:"
@@ -258,7 +277,7 @@ function love.update(dt)
 					log = log .. " x" .. value.data[1][1]
 					log = log .. " x" .. value.data[1][2]
 				else
-					log = log .. value.data[#value.data]
+					log = log .. tostring(value.data[#value.data])
 				end
 			end
 		end
@@ -313,6 +332,9 @@ function love.update(dt)
 
 		-- mouse
 		xx, yy = love.mouse.getPosition()
+		if slider == nil then
+			xxx, yyy = love.mouse.getPosition()
+		end
 
 		local x = out*3+pat
 		local y = res[2]-boxSize+out
@@ -364,6 +386,7 @@ end
 
 -- draw
 function love.draw()
+	sliders = 0
 	hover = ""
 
 	-- song editor
@@ -867,6 +890,113 @@ function love.draw()
 
 		---------------------------------------------
 	end
+
+	if selectedPat[1] then
+		local ins = channels[selectedPat[1]].instrument
+		channels[selectedPat[1]].instruments[ins].gain = DrawSliderH(100, 100, 200, 16, channels[selectedPat[1]].instruments[ins].gain, 0.75, 1)
+	end
+
+	-- end
+	lxx, lyy = xx, yy
+	if cursorReset then
+		love.mouse.setCursor(cursor.arrow)
+		cursorReset = false
+	end
+	sliderScroll = 0
+end
+
+function DrawSliderH(x, y, w, h, value, default, max, min, int)
+	-- setup
+	local sel = selectedPat[1] or 1
+	if min ~= 0 and min ~= 1 then
+		min = (min or 0)/max
+	end
+	local norm = ((value or 0)-(min or 0))/max
+	sliders = sliders + 1
+	local sliderName = "slider" .. tostring(sliders)
+	local mouse = love.mouse.isDown(1)
+
+	buttonTopLeft(x, y, w, h, sliderName)
+	if delta[sliderName] == nil then
+		delta[sliderName] = 0
+	end
+	if delta.instruments > 0.99 then
+		delta[sliderName] = Approach(delta[sliderName], norm, math.abs(delta[sliderName] - norm)/settings.sliderSmoothing)
+	end
+
+	-- slider
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.instruments)
+	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(cc[sel][1][1], cc[sel][1][2], cc[sel][1][3], delta.instruments)
+	love.graphics.rectangle("fill", x, y, w*delta[sliderName], h)
+	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/2)
+	love.graphics.draw(s_shadow_rect, x, y, 0, w/128, h/64)
+
+	-- highlight
+	if slider == sliderName or sliderScroll ~= 0 then
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/6)
+	elseif hover == sliderName then
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/20)
+	end
+	if hover == sliderName or slider == sliderName then
+		love.graphics.rectangle("fill", x, y, w, h)
+	end
+
+	-- outline
+	love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.instruments)
+	love.graphics.rectangle("line", x, y, w, h)
+
+	-- default and return
+	if love.mouse.isDown(3) then return default*max end
+	if hover ~= sliderName then
+		if slider ~= sliderName then
+			cursorReset = true
+			return value
+		end
+	end
+
+	-- mouse scroll
+	if sliderScroll ~= 0 then
+		local div
+		if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+			div = 100
+		elseif love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+			div = 4
+		else
+			div = 20
+		end
+		return Clamp(value-sliderScroll/div, min, max)
+	end
+
+	-- cursor
+	if mouse then
+		if hover == sliderName then
+			slider = sliderName
+		end
+	else
+		if hover == sliderName then
+			love.mouse.setCursor(cursor.sizeew)
+		else
+			cursorReset = true
+		end
+		if slider == sliderName then
+			slider = nil
+			love.mouse.setPosition(x+w*(value/max), yyy)
+		end
+	end
+
+	-- value
+	if slider == sliderName then
+		love.mouse.setVisible(false)
+		value = Clamp(value + (lxx-xxx)/300, min or 0, max)
+		if mouse then
+			love.mouse.setPosition(xxx, yyy)
+		end
+	else
+		love.mouse.setVisible(true)
+	end
+
+	return value
 end
 
 function DrawSettings()
@@ -912,9 +1042,6 @@ function DrawSettings()
 	love.graphics.setFont(font40n)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupSaveSettings)
 	love.graphics.print("The channel's name:", x-(font40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
-
-	
-	
 end
 
 function DrawMenuTop(sss)
@@ -940,10 +1067,6 @@ function PrintOutline(t, x, y, sx, sy, offset)
 	love.graphics.print(t, x+offset, y-offset, 0, sx, sy)
 	love.graphics.setColor(theme.light1)
 	love.graphics.print(t, x, y, 0, sx, sy)
-end
-
-function DrawSlider(x, y, w, h, dir)
-	love.graphics.rectangle(x, y, x+w, y+h)
 end
 
 function AddChannel(noReset, t, n)
@@ -973,9 +1096,18 @@ function AddChannel(noReset, t, n)
 					instrument = 1,
 					instruments = {
 						{	-- 1
-							chorus = {phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
-							compressor = false,
-							distortion = {gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0}
+							gain		  =	0.75,
+							detune 		  = 0,
+							chorus		  =	{apply = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
+							compressor	  =	false,
+							distortion	  =	{apply = false, gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0},
+							echo		  =	{apply = false, delay = 0, tapdelay = 0, damping = 0, feedback = 0, spread = 0},
+							equalizer	  = {apply = false, lowgain = 0, lowcut = 0, lowmidgrain = 0, lowmidfrequency = 0, lowmidbandwidth = 0,
+											highmidgain = 0, highmidfrequency = 0, highmidbandwidth = 0, highgain = 0, highcut = 0},
+							flanger		  =	{apply = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
+							reverb 		  =	{apply = false, gain = 0, highgain = 0, density = 0, diffusion = 0, decaytime = 0, decayhighratio = 0,
+											earlygain = 0, earlydelay = 0, lategain = 0, latedelay = 0, roomrolloff = 0, airabsorption = 0, highlimit = false},
+							ringmodulator = {apply = false, waveform = "square", frequency = 0, highcut = 0}
 						}
 					}
 					
@@ -998,7 +1130,6 @@ function AddChannel(noReset, t, n)
 
 				selection = {{}, {}}
 				ScrollUpdate()
-				ScrollSet()
 			end
 		else
 			popup = ""
@@ -1403,11 +1534,7 @@ function love.keypressed(key)
 			end
 		elseif key == "a" then
 			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
-				if popup == "" and not settingsWindow then
-					if #channels > 0 then
-						selection = {{1, 1}, {#channels, song.length}}
-					end
-				end
+				SelectAll()
 			end
 		elseif key == "n" then
 			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
@@ -1575,14 +1702,22 @@ function love.mousepressed(xx, yy, b)
 			Undo()
 		elseif hover == dropdowns.Edit[2] then	-- Redo
 			Redo()
-		elseif hover == dropdowns.Edit[8] then	-- Add Channel
+		elseif hover == dropdowns.Edit[8] then	-- select all
+			SelectAll()
+		elseif hover == dropdowns.Edit[10] then	-- Add Channel
 			popup = popups.addChannel
-		elseif hover == dropdowns.Edit[9] then	-- Remove Channels
+		elseif hover == dropdowns.Edit[11] then	-- Remove Channels
 			RemoveChannels()
-		elseif hover == dropdowns.Edit[15] then	-- Song Settings
+		elseif hover == dropdowns.Edit[17] then	-- Song Settings
 			if popup == "" and not settingsWindow then
 				popup = popups.songSettings
 			end
+		elseif hover == dropdowns.Edit[13] then	-- insert left
+			AddBar(selectedPat[2])
+		elseif hover == dropdowns.Edit[14] then	-- insert right
+			AddBar(selectedPat[2]+1)
+		elseif hover == dropdowns.Edit[15] then	-- remove bar
+			RemoveBar(selectedPat[2])
 		end
 		if string.match(hover, "(channel)%d+") == "channel" then
 			dropdown = "ch" .. string.match(hover, "channel(%d+)")
@@ -1646,6 +1781,7 @@ function RemoveChannels()
 end
 
 function love.wheelmoved(_, y)
+	sliderScroll = sliderScroll + y
 	if delta.channels < 0.001 then
 		if popup == "" and not settingsWindow then
 			if hoverPattern then
@@ -1669,6 +1805,42 @@ function ScrollSet()
 	if selectedPat[1] ~= nil then
 		scroll[1] = math.min(0, math.max(scrollMax[1], channelCanvasSize[1]/2-(selectedPat[2]-1)*(out+pat)))
 		scroll[2] = math.min(0, math.max(scrollMax[2], channelCanvasSize[2]/2-(selectedPat[1])*(out+pat)))
+	end
+end
+
+function SelectAll()
+	if popup == "" and not settingsWindow then
+		if #channels > 0 then
+			selection = {{1, 1}, {#channels, song.length}}
+		end
+	end
+end
+
+function AddBar(n, v, noReset)
+	song.length = song.length + 1
+	for iw = song.length-1, n, -1 do
+		for ih = 1, #channels do
+			channels[ih].slots[iw+1] = channels[ih].slots[iw]
+			channels[ih].slots[iw] = v[ih] or 0
+		end
+	end
+	if not noReset then
+		AddUndo(datatypes.addBar, {n, v})
+	end
+end
+
+function RemoveBar(n, noReset)
+	local v = {}
+	for ih = 1, #channels do
+		v[ih] = channels[ih].slots[n]
+		for iw = n, song.length do
+			channels[ih].slots[iw] = channels[ih].slots[iw+1]
+		end
+	end
+	song.length = song.length - 1
+	ScrollUpdate()
+	if not noReset then
+		AddUndo(datatypes.removeBar, {n, v})
 	end
 end
 
@@ -1755,11 +1927,14 @@ function Undo()
 					selection = {{pos[1][2], pos[1][1]}, {pos[2][2], pos[2][1]}}
 				end
 			end
+		elseif this.datatype == datatypes.addBar then
+			RemoveBar(this.data[1], true)
+		elseif this.datatype == datatypes.removeBar then
+			AddBar(this.data[1], this.data[2], true)
 		end
 
 		AddRedo(this.datatype, this.data)
 		table.remove(undos, 1)
-		ScrollSet()
 		ScrollUpdate()
 	end
 end
@@ -1795,7 +1970,12 @@ function Redo()
 					selection = {{pos[1][2], pos[1][1]}, {pos[2][2], pos[2][1]}}
 				end
 			end
+		elseif this.datatype == datatypes.addBar then
+			AddBar(this.data[1], this.data[2], true)
+		elseif this.datatype == datatypes.removeBar then
+			RemoveBar(this.data[1], true)
 		end
+
 
 		AddUndo(this.datatype, this.data, true)
 		
