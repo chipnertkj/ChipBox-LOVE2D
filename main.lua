@@ -32,17 +32,46 @@ function KeybindPass(keybind)
 end
 
 function love.load()
+	-- release
+	if setup then
+		love.audio.stop()
+		for i = 1, #channels do
+			for ii = 1, #channels[i].instruments do
+				for iii = 1, #channels[i].instruments[ii].source do
+					channels[i].instruments[ii].source[iii]:release()
+				end
+			end
+		end
+	end
+
 	-- reset
 	startTime = love.timer.getTime()
 	cursorReset = false
+
+	keys = {
+		"C",
+		"C#",
+		"D",
+		"D#",
+		"E",
+		"F",
+		"F#",
+		"G",
+		"G#",
+		"A",
+		"A#",
+		"B",
+	}
 
 	-- song setup
 	channels = {}
 	channelsMax = 24
 	song = {
 		length = 64,
+		key = keys[1],
 		patterns = 32,
-		path = ""
+		path = "",
+		chordSize = 4,
 	}
 
 	delta = {
@@ -75,6 +104,7 @@ function love.load()
 	sliders = 0
 	timer = 0
 	hover = ""
+	lasthover = hover
 	popup = ""
 	scroll = {0, 0}
 	scrollApp = {0, 0}
@@ -95,10 +125,13 @@ function love.load()
 	settingsWindow = false
 	slider = nil
 	sliderScroll = 0
+	changedCursor = false
+	preview = {}
 
 	cc = {}
 	for i = 1, channelsMax do
-		cc[i] = {{HSL(255/channelsMax*((channelsMax-i+1)*3.5)%256, 255, 190, 255)}, {HSL(255/channelsMax*((channelsMax-i+1)*3.5)%256, 75, 150, 120)}}
+		local ccc = 255/(channelsMax-2)*((channelsMax-i-1)*3.5)%255
+		cc[i] = {{HSL(ccc, 240, 155, 255)}, {HSL(ccc, 75, 150, 120)}}
 	end
 	
 	-- setup
@@ -135,6 +168,40 @@ function love.load()
 		windows = {
 			song = "Song"
 		}
+
+		-- freq
+		octaves = 7		-- plus one C
+
+		local root = 2^(1/12)
+
+		frequency = {}
+		for i = 0, octaves do
+			for ii = 1, #keys do
+				frequency[keys[ii] .. tostring(i)] = 16.35*((root)^(i*12+ii-1))
+			end
+		end
+
+
+		-- hey idiot try not using anything outside (-1, 1)
+		wavePresets = {
+			rounded = {0, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.95, 0.9, 0.85, 0.8,
+				0.7, 0.6, 0.5, 0.4, 0.2, 0, -0.2, -0.4, -0.5, -0.6, -0.7, -0.8, -0.85, -0.9, -0.95, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+				-0.95, -0.9, -0.85, -0.8, -0.7, -0.6, -0.5, -0.4, -0.2
+			},
+			square = {1, -1},
+			sawtooth = {1 / 31, 3 / 31, 5 / 31, 7 / 31, 9 / 31, 11 / 31, 13 / 31, 15 / 31, 17 / 31, 19 / 31, 21 / 31, 23 / 31,
+				25 / 31, 27 / 31, 29 / 31, 1, -1, -29 / 31, -27 / 31, -25 / 31, -23 / 31, -21 / 31,
+				-19 / 31, -17 / 31, -15 / 31, -13 / 31, -11 / 31, -9 / 31, -7 / 31, -5 / 31, -3 / 31, -1 / 31
+			},
+			triangle = {1 / 15, 0.2, 5 / 15, 7 / 15, 0.6, 11 / 15, 13 / 15, 1, 1, 13 / 15, 11 / 15, 0.6, 7 / 15, 5 / 15, 0.2, 1 / 15,
+				-1 / 15, -0.2, -5 / 15, -7 / 15, -0.6, -11 / 15, -13 / 15, -1, -1, -13 / 15, -11 / 15, -0.6, -7 / 15, -5 / 15, -0.2, -1 / 15
+			},
+			doubleSaw = {0, -0.2, -0.4, -0.6, -0.8, -1, 1, -0.8, -0.6, -0.4, -0.2, 1, 0.8, 0.6, 0.4, 0.2},
+			doublePulse = {1, 1, 1, 1, 1, -1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1},
+			spiky = {1, -1, 1, -1, 1, 0},
+			-- idiot: does it anyways
+			sine = {8, 9, 11, 12, 13, 14, 15, 15, 15, 15, 14, 14, 13, 11, 10, 9, 7, 6, 4, 3, 2, 1, 0, 0, 0, 0, 1, 1, 2, 4, 5, 6}
+		}
 		
 		-- info
 		debug = false
@@ -159,7 +226,7 @@ function love.load()
 		end
 
 		degToRad = 0.017453
-
+		sampleSize = 64
 		log = ""
 
 		-- theme
@@ -190,13 +257,17 @@ function love.load()
 		-- cursors
 		cursor = {
 			arrow = love.mouse.getSystemCursor("arrow"),
-			sizeew = love.mouse.getSystemCursor("sizewe")
+			hand = love.mouse.getSystemCursor("hand"),
+			sizeew = love.mouse.getSystemCursor("sizewe"),
+			sizens = love.mouse.getSystemCursor("sizens")
 		}
 
 		-- channel types
 		channelTypes = {
-			chip = 1
+			wave = 1
 		}
+
+		local dirFonts = "fonts/"
 
 		-- sfx and sprites
 		s_plus = love.graphics.newImage(dirSprites .. "plus.png")
@@ -210,11 +281,11 @@ function love.load()
 		s_shadow_box = love.graphics.newImage(dirSprites .. "shadow_box.png")
 		s_channel = love.graphics.newImage(dirSprites .. "channel.png")
 		u_sfx = love.audio.newSource("sfx.wav", "static")
-		font26n = love.graphics.newFont("timeburnernormal.ttf", 26)
-		font40n = love.graphics.newFont("timeburnernormal.ttf", 40)
+		timeburner26n = love.graphics.newFont(dirFonts .. "timeburnernormal.ttf", 26)
+		timeburner17n = love.graphics.newFont(dirFonts .. "timeburnernormal.ttf", 17)
+		timeburner40n = love.graphics.newFont(dirFonts .. "timeburnernormal.ttf", 40)
 
-		-- buttons
-		buttons = {}
+		
 		--popups
 		popups = {
 			addChannel = 1,
@@ -246,7 +317,7 @@ function love.update(dt)
 	-- song editor
 	if window == windows.song then
 		-- debug
-		if debug then
+		if debug and false then
 			-- undo/redo log
 			log = "undo:"
 			for key, value in pairs(undos) do
@@ -282,6 +353,7 @@ function love.update(dt)
 			end
 		end
 
+		-- dropdown
 		if dropdown ~= "" then
 			if string.match(hover, "(menu|)") == "menu|" then
 				local sub = string.sub(hover, 6)
@@ -291,6 +363,15 @@ function love.update(dt)
 				end
 			end
 		end
+
+		-- button cursor
+		if hover == "addChannel" or hover == "nameChannel" then
+			love.mouse.setCursor(cursor.hand)
+			changedCursor = "button"
+		elseif changedCursor == "button" then
+			cursorReset = true
+		end
+
 
 		-- canMult
 		if selection[2][1] ~= nil then
@@ -387,6 +468,7 @@ end
 -- draw
 function love.draw()
 	sliders = 0
+	lasthover = hover
 	hover = ""
 
 	-- song editor
@@ -437,6 +519,24 @@ function love.draw()
 
 		---------------------------------------------
 
+		-- instrument modification
+		-- outside
+		do
+			local h = -(res[2]-boxSize-res[2]/35)*(1-delta.channels)
+			local hh = math.min(h+out*2, 0)
+			love.graphics.setColor(theme.outside)
+			love.graphics.rectangle("fill", res[1]-boxSize, res[2]-boxSize, boxSize, h)
+			-- inside
+			love.graphics.setColor(theme.inside)
+			love.graphics.rectangle("fill", res[1]-boxSize+out, res[2]-boxSize-out, boxSize-out*2, hh)
+
+			love.graphics.setColor(theme.outline)
+			love.graphics.rectangle("line", res[1]-boxSize, res[2]-boxSize, boxSize, h)
+			love.graphics.rectangle("line", res[1]-boxSize+out, res[2]-boxSize-out, boxSize-out*2, hh)
+		end
+
+		---------------------------------------------
+
 		-- channels and patterns
 		-- outside
 		love.graphics.setColor(theme.outside)
@@ -445,7 +545,10 @@ function love.draw()
 		love.graphics.setColor(theme.inside)
 		love.graphics.rectangle("fill", res[1]*delta.channels+out, res[2]-boxSize+out, res[1]-boxSize-out*2, boxSize-out*7)
 
+		-- channels, patterns AND the sliders from instrument modification cause code optimization
 		if delta.channels < 0.001 then
+			DrawInstrument()
+
 			-- scroll
 			scrollApp[1] = Approach(scrollApp[1], scroll[1], math.abs(scrollApp[1] - scroll[1])/3)
 			scrollApp[2] = Approach(scrollApp[2], scroll[2], math.abs(scrollApp[2] - scroll[2])/3)
@@ -499,7 +602,7 @@ function love.draw()
 			end
 
 			-- numbers
-			love.graphics.setFont(font40n)
+			love.graphics.setFont(timeburner40n)
 			for ih = 1, #channels do
 				for iw = 1, song.length do
 					if channels[ih].slots[iw] == nil then
@@ -512,7 +615,7 @@ function love.draw()
 						ccc = cc[ih][2]
 					end
 					love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255, ccc[4]/255)
-					love.graphics.print(channels[ih].slots[iw], (pat+out)*(iw-1)+1 + pat/2-(font40n:getWidth(channels[ih].slots[iw])*scale)/2+1+scrollApp[1],
+					love.graphics.print(channels[ih].slots[iw], (pat+out)*(iw-1)+1 + pat/2-(timeburner40n:getWidth(channels[ih].slots[iw])*scale)/2+1+scrollApp[1],
 					((pat+out)*(ih-1)+out*2) + (pat - 40*scale)/2-1+scrollApp[2], 0, scale, scale)
 				end
 			end
@@ -743,13 +846,13 @@ function love.draw()
 		-- channel 2. app and text 
 		if #channels == 0 then
 			-- new channel text
-			love.graphics.setFont(font40n)
+			love.graphics.setFont(timeburner40n)
 			love.graphics.setColor(theme.light1)
 			love.graphics.printf("Add a new channel", res[1]-boxSize*0.77, res[2]-boxSize*0.7, 200, "center", 0, scale, scale)
 			delta.channels = Approach(delta.channels, 1, math.abs(delta.channels - 1)/5)
 		else
 			-- edit
-			love.graphics.setFont(font26n)
+			love.graphics.setFont(timeburner26n)
 			love.graphics.setColor(theme.light1)
 			love.graphics.setColor(theme.outline)
 			love.graphics.draw(s_highlight1, res[1]-boxSize/2, res[2]-boxSize*0.8, 180*degToRad, scale*1.30, scale*1.01, 172/2, 35/2)
@@ -765,18 +868,18 @@ function love.draw()
 						end
 					end
 				end
-				local w = font26n:getWidth(t)*(scale*1.15)
+				local w = timeburner26n:getWidth(t)*(scale*1.15)
 				local wrap = false
 				while w > boxSize-scale*50 do
 					t = string.sub(t, 1, string.len(t)-2)
-					w = font26n:getWidth(t)*(scale*1.15)
+					w = timeburner26n:getWidth(t)*(scale*1.15)
 					wrap = true
 				end
 				if wrap then
 					t = t .. "..."
 				end
 				PrintOutline(t, res[1]-boxSize/2-w/2,
-					res[2]-boxSize*0.8-(font26n:getHeight("A")*(scale*1.1))/2, scale*1.15, scale*1.1, 1.15
+					res[2]-boxSize*0.8-(timeburner26n:getHeight("A")*(scale*1.1))/2, scale*1.15, scale*1.1, 1.15
 				)
 			end
 			delta.channels = Approach(delta.channels, 0, math.abs(delta.channels)/5)
@@ -809,8 +912,8 @@ function love.draw()
 		love.graphics.draw(s_logo32, out/2, out/3, 0, out/7, out/7)
 		love.graphics.setColor(theme.outline)
 		love.graphics.rectangle("line", 0, 0, res[1], res[2]/35)
-		love.graphics.setFont(font26n)
-		love.graphics.print(appNameFull, (res[1] - font26n:getWidth(appNameFull)*scale)/2, out/4, 0, scale, scale)
+		love.graphics.setFont(timeburner26n)
+		love.graphics.print(appNameFull, (res[1] - timeburner26n:getWidth(appNameFull)*scale)/2, out/4, 0, scale, scale)
 		barx = 32*(out/7) + out*3
 		DrawMenuTop("File")
 		DrawMenuTop("Edit")
@@ -824,9 +927,9 @@ function love.draw()
 			local s = #dropdowns[dropdown]
 
 			www = 0
-			local hhh = font26n:getHeight("M")*scale*0.95
+			local hhh = timeburner26n:getHeight("M")*scale*0.95
 			for i = 1, s do
-				local ww = font26n:getWidth(dropdowns[dropdown][i])*scale
+				local ww = timeburner26n:getWidth(dropdowns[dropdown][i])*scale
 				if www < ww then www = ww end
 			end
 			www = www*2
@@ -853,8 +956,6 @@ function love.draw()
 			end
 		end
 
-
-
 		---------------------------------------------
 
 		-- intro
@@ -872,9 +973,9 @@ function love.draw()
 			if love.timer.getTime() - startTime >= 0.25 then
 				delta.introW = Approach(delta.introW, 1, math.abs(delta.introW - 1)/10)
 			end
-			love.graphics.print(version, (res[1] - font26n:getWidth(version)*(scale*1.25))/2, res[2]-res[2]/3.7, 0, scale*1.25, scale*1.25)
-			love.graphics.setFont(font40n)
-			love.graphics.print("c h i p b o x", (res[1] - font40n:getWidth("c h i p b o x")*(scale*1.5))/2, res[2]-res[2]/3, 0, scale*1.5, scale*1.5)
+			love.graphics.print(version, (res[1] - timeburner26n:getWidth(version)*(scale*1.25))/2, res[2]-res[2]/3.7, 0, scale*1.25, scale*1.25)
+			love.graphics.setFont(timeburner40n)
+			love.graphics.print("c h i p b o x", (res[1] - timeburner40n:getWidth("c h i p b o x")*(scale*1.5))/2, res[2]-res[2]/3, 0, scale*1.5, scale*1.5)
 			love.graphics.rectangle("fill", res[1]/3, res[2]/20*19.75, res[1]/3*delta.introW, 1)
 		end
 
@@ -884,16 +985,11 @@ function love.draw()
 		if debug then
 			-- log
 			love.graphics.setColor(1, 1, 1)
-			love.graphics.setFont(font26n)
+			love.graphics.setFont(timeburner26n)
 			love.graphics.print(log, 0, 0, 0, res[1]/2000)
 		end
 
 		---------------------------------------------
-	end
-
-	if selectedPat[1] then
-		local ins = channels[selectedPat[1]].instrument
-		channels[selectedPat[1]].instruments[ins].gain = DrawSliderH(100, 100, 200, 16, channels[selectedPat[1]].instruments[ins].gain, 0.75, 1)
 	end
 
 	-- end
@@ -905,7 +1001,25 @@ function love.draw()
 	sliderScroll = 0
 end
 
-function DrawSliderH(x, y, w, h, value, default, max, min, int)
+function DrawInstrument()
+	if not selectedPat[1] then return end
+	if not channels[selectedPat[1]] then return end
+	local x = res[1]-boxSize
+	local y = res[2]/35
+	local ins = channels[selectedPat[1]].instrument
+
+	local pass
+
+	channels[selectedPat[1]].instruments[ins].gain, pass = 
+	DrawSliderH(x+boxSize-out*4-(25*scale), y+out*3, (30*scale), 220*scale, channels[selectedPat[1]].instruments[ins].gain, 0.25, 0.5)
+	if pass then
+		local ins = channels[selectedPat[1]].instrument
+		channels[selectedPat[1]].instruments[ins].source[1]:setVolume(channels[selectedPat[1]].instruments[ins].gain)
+	end
+
+end
+
+function DrawSliderH(x, y, w, h, value, default, max, min)
 	-- setup
 	local sel = selectedPat[1] or 1
 	if min ~= 0 and min ~= 1 then
@@ -915,6 +1029,7 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 	sliders = sliders + 1
 	local sliderName = "slider" .. tostring(sliders)
 	local mouse = love.mouse.isDown(1)
+	local def = love.mouse.isDown(3)
 
 	buttonTopLeft(x, y, w, h, sliderName)
 	if delta[sliderName] == nil then
@@ -933,7 +1048,7 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 	love.graphics.draw(s_shadow_rect, x, y, 0, w/128, h/64)
 
 	-- highlight
-	if slider == sliderName or sliderScroll ~= 0 then
+	if slider == sliderName or sliderScroll ~= 0 or def then
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/6)
 	elseif hover == sliderName then
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/20)
@@ -947,11 +1062,13 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 	love.graphics.rectangle("line", x, y, w, h)
 
 	-- default and return
-	if love.mouse.isDown(3) then return default*max end
+	if def then return default*max, true end
 	if hover ~= sliderName then
 		if slider ~= sliderName then
-			cursorReset = true
-			return value
+			if changedCursor == sliderName then
+				cursorReset = true
+			end
+			return value, false
 		end
 	end
 
@@ -965,7 +1082,7 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 		else
 			div = 20
 		end
-		return Clamp(value-sliderScroll/div, min, max)
+		return Clamp(value-(sliderScroll*max)/div, min, max), true
 	end
 
 	-- cursor
@@ -976,7 +1093,8 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 	else
 		if hover == sliderName then
 			love.mouse.setCursor(cursor.sizeew)
-		else
+			changedCursor = sliderName
+		elseif changedCursor == sliderName then
 			cursorReset = true
 		end
 		if slider == sliderName then
@@ -996,7 +1114,322 @@ function DrawSliderH(x, y, w, h, value, default, max, min, int)
 		love.mouse.setVisible(true)
 	end
 
+	return value, true
+end
+
+function DrawSliderV(x, y, w, h, value, default, max, min, int)
+	-- setup
+	local sel = selectedPat[1] or 1
+	if min ~= 0 and min ~= 1 then
+		min = (min or 0)/max
+	end
+	local norm = ((value or 0)-(min or 0))/max
+	sliders = sliders + 1
+	local sliderName = "slider" .. tostring(sliders)
+	local mouse = love.mouse.isDown(1)
+	local def = love.mouse.isDown(3)
+
+	buttonTopLeft(x, y, w, h, sliderName)
+	if delta[sliderName] == nil then
+		delta[sliderName] = 0
+	end
+	if delta.instruments > 0.99 then
+		delta[sliderName] = Approach(delta[sliderName], norm, math.abs(delta[sliderName] - norm)/settings.sliderSmoothing)
+	end
+
+	-- slider
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.instruments)
+	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(cc[sel][1][1]/255, cc[sel][1][2]/255, cc[sel][1][3]/255, delta.instruments)
+	love.graphics.rectangle("fill", x, y+h, w, -h*delta[sliderName])
+	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/2)
+	love.graphics.draw(s_shadow_rect, x+w, y, 90*degToRad, h/128, w/64)
+
+	-- highlight
+	if slider == sliderName or sliderScroll ~= 0 or def then
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/6)
+	elseif hover == sliderName then
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/20)
+	end
+	if hover == sliderName or slider == sliderName then
+		love.graphics.rectangle("fill", x, y, w, h)
+	end
+
+	-- outline
+	love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.instruments)
+	love.graphics.rectangle("line", x, y, w, h)
+
+	-- default and return
+	if def then return default*max end
+	if hover ~= sliderName then
+		if slider ~= sliderName then
+			if changedCursor == sliderName then
+				cursorReset = true
+			end
+			return value
+		end
+	end
+
+	-- mouse scroll
+	if sliderScroll ~= 0 then
+		local div
+		if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+			div = 100
+		elseif love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+			div = 4
+		else
+			div = 20
+		end
+		return Clamp(value+sliderScroll/div, min, max)
+	end
+
+	-- cursor
+	if mouse then
+		if hover == sliderName then
+			slider = sliderName
+		end
+	else
+		if hover == sliderName then
+			love.mouse.setCursor(cursor.sizens)
+			changedCursor = sliderName
+		elseif changedCursor == sliderName then
+			cursorReset = true
+		end
+		if slider == sliderName then
+			slider = nil
+			love.mouse.setPosition(xxx, y+h*(1-(value/max)))
+		end
+	end
+
+	-- value
+	if slider == sliderName then
+		love.mouse.setVisible(false)
+		value = Clamp(value + (yyy-lyy)/300, min or 0, max)
+		if mouse then
+			love.mouse.setPosition(xxx, yyy)
+		end
+	else
+		love.mouse.setVisible(true)
+	end
+
 	return value
+end
+
+function GenerateSamples(channel, freq)
+	local pitch = freq/340
+	local ins = channels[channel].instrument
+	local l = math.ceil(sampleSize/pitch)
+	channels[channel].instruments[ins].soundData = love.sound.newSoundData(l, 44100*(sampleSize/64), 16, 1)
+	local data = channels[channel].instruments[ins].soundData
+	local preset = wavePresets[channels[channel].instruments[ins].preset]
+	log = ""
+	for i = 1, l-1 do
+		local norm = i/math.ceil(sampleSize/pitch)
+		local n = preset[math.ceil(norm*#preset)]
+		log = log .. tostring(n)
+		if i == math.ceil(l/2) then log = log .. "\n" end
+		data:setSample(i, n)
+	end
+	WrapSource(channel)
+end
+
+function WrapSource(channel)
+	local ins = channels[channel].instrument
+	if channels[channel].instruments[ins].source[1] then
+		channels[channel].instruments[ins].source[1]:stop()
+		channels[channel].instruments[ins].source[1]:release()
+	end
+	channels[channel].instruments[ins].source[1] = love.audio.newSource(channels[channel].instruments[ins].soundData)
+	local s = channels[channel].instruments[ins].source[1]
+
+	-- setup
+	s:setVolume(channels[channel].instruments[ins].gain)
+	s:setLooping(true)
+end
+
+function Play(channel, freq)
+	if not freq then return end
+	if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") or
+	love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") or
+	love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then return end
+	local s = channels[channel].instruments[channels[channel].instrument].source[1]
+	if s:isPlaying() then Stop(channel) end
+	GenerateSamples(channel, freq)
+	s = channels[channel].instruments[channels[channel].instrument].source[1]
+	s:play()
+end
+
+function Stop(channel)
+	local ins = channels[channel].instrument
+	channels[channel].instruments[ins].source[1]:stop()
+end
+
+function NotePreview(key, play)
+	love.keyboard.setKeyRepeat(false)
+	if key:match("%c") then return end
+	if keyboardMode ~= keyboardModes.note then return end
+	if not selectedPat[1] then return end
+
+	local freq
+
+	if key == "" then
+	elseif key == "]" then
+		freq = frequency["G5"]
+	elseif key == "=" then
+		freq = frequency["F#5"]
+	elseif key == "[" then
+		freq = frequency["F5"]
+	elseif key == "p" then
+		freq = frequency["E5"]
+	elseif key == "0" then
+		freq = frequency["D#5"]
+	elseif key == "o" then
+		freq = frequency["D5"]
+	elseif key == "9" then
+		freq = frequency["C#5"]
+	elseif key == "i" then
+		freq = frequency["C5"]
+	elseif key == "u" then
+		freq = frequency["B4"]
+	elseif key == "7" then
+		freq = frequency["A#4"]
+	elseif key == "y" then
+		freq = frequency["A4"]
+	elseif key == "6" then
+		freq = frequency["G#4"]
+	elseif key == "t" then
+		freq = frequency["G4"]
+	elseif key == "5" then
+		freq = frequency["F#4"]
+	elseif key == "r" then
+		freq = frequency["F4"]
+	elseif key == "e" then
+		freq = frequency["E4"]
+	elseif key == "3" then
+		freq = frequency["D#4"]
+	elseif key == "w" then
+		freq = frequency["D4"]
+	elseif key == "2" then
+		freq = frequency["C#4"]
+	elseif key == "q" then
+		freq = frequency["C4"]
+	elseif key == "\\" then
+		freq = frequency["F#4"]
+	elseif key == "/" then
+		freq = frequency["E4"]
+	elseif key == ";" then
+		freq = frequency["D#4"]
+	elseif key == "." then
+		freq = frequency["D4"]
+	elseif key == "l" then
+		freq = frequency["C#4"]
+	elseif key == "," then
+		freq = frequency["C4"]
+	elseif key == "m" then
+		freq = frequency["B3"]
+	elseif key == "j" then
+		freq = frequency["A#3"]
+	elseif key == "n" then
+		freq = frequency["A3"]
+	elseif key == "h" then
+		freq = frequency["G#3"]
+	elseif key == "b" then
+		freq = frequency["G3"]
+	elseif key == "g" then
+		freq = frequency["F#3"]
+	elseif key == "v" then
+		freq = frequency["F3"]
+	elseif key == "c" then
+		freq = frequency["E3"]
+	elseif key == "d" then
+		freq = frequency["D#3"]
+	elseif key == "x" then
+		freq = frequency["D3"]
+	elseif key == "s" then
+		freq = frequency["C#3"]
+	elseif key == "z" then
+		freq = frequency["C3"]
+	end
+
+	if play then
+		Play(selectedPat[1], freq)
+	else
+		Stop(selectedPat[1])
+	end
+end
+
+function AddChannel(noReset, t, n)
+	if #channels < channelsMax then
+		if t == nil then
+			t = text
+		end
+		while string.sub(t, string.len(t)) == " " do
+			t = string.sub(t, 1, string.len(t)-1)
+		end
+		if t ~= "" then
+			local continue = true
+			for i = 1, #channels do
+				if channels[i].name == t then
+					continue = false
+					break
+				end
+			end
+			if continue then
+				local cch = n or #channels+1
+				table.insert(channels, cch,
+				{
+					name = t,
+					type = channelTypes.wave,
+					slots = {},
+					patterns = {},
+					instrument = 1,
+					instruments = {
+						{	-- 1
+							active		  = false,
+							preset		  = "square",
+							soundData	  = nil,
+							source		  = {},
+							gain		  =	0.25,
+							pan			  = 0,
+							detune 		  = 1,
+							chorus		  =	{active = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
+							compressor	  =	false,
+							distortion	  =	{active = false, gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0},
+							echo		  =	{active = false, delay = 0, tapdelay = 0, damping = 0, feedback = 0, spread = 0},
+							equalizer	  = {active = false, lowgain = 0, lowcut = 0, lowmidgrain = 0, lowmidfrequency = 0, lowmidbandwidth = 0,
+											highmidgain = 0, highmidfrequency = 0, highmidbandwidth = 0, highgain = 0, highcut = 0},
+							flanger		  =	{active = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
+							reverb 		  =	{active = false, gain = 0, highgain = 0, density = 0, diffusion = 0, decaytime = 0, decayhighratio = 0,
+											earlygain = 0, earlydelay = 0, lategain = 0, latedelay = 0, roomrolloff = 0, airabsorption = 0, highlimit = false},
+							ringmodulator = {active = false, waveform = "square", frequency = 0, highcut = 0}
+						}
+					}
+					
+				})
+				GenerateSamples(cch, 1)
+				delta.patterns = 0
+				popup = ""
+				
+				-- select
+				selectedPat[1] = #channels
+				if selectedPat[2] == nil then
+					selectedPat[2] = 1
+				end
+
+				-- no reset
+				if not noReset then
+					AddUndo(datatypes.addChannel, {#channels, t})
+				else
+					delta.channels = 0
+				end
+
+				selection = {{}, {}}
+				ScrollUpdate()
+			end
+		else
+			popup = ""
+		end
+	end
 end
 
 function DrawSettings()
@@ -1039,13 +1472,13 @@ function DrawSettings()
 	love.graphics.rectangle("fill", x-w/2+out*4, y+out*2, w-out*8, h/5)
 	love.graphics.setColor(theme.input[1], theme.input[2], theme.input[3], delta.popupSaveSettings)
 	love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
-	love.graphics.setFont(font40n)
+	love.graphics.setFont(timeburner40n)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupSaveSettings)
-	love.graphics.print("The channel's name:", x-(font40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
+	love.graphics.print("The channel's name:", x-(timeburner40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
 end
 
 function DrawMenuTop(sss)
-	local www = font26n:getWidth(sss)
+	local www = timeburner26n:getWidth(sss)
 	local x, y, w, h =  barx-out*1.5, 0, out*3 + www*scale, res[2]/35
 	love.graphics.print(sss, barx, out/4, 0, scale, scale)
 	menuPos[sss] = barx
@@ -1067,74 +1500,6 @@ function PrintOutline(t, x, y, sx, sy, offset)
 	love.graphics.print(t, x+offset, y-offset, 0, sx, sy)
 	love.graphics.setColor(theme.light1)
 	love.graphics.print(t, x, y, 0, sx, sy)
-end
-
-function AddChannel(noReset, t, n)
-	if #channels < channelsMax then
-		if t == nil then
-			t = text
-		end
-		while string.sub(t, string.len(t)) == " " do
-			t = string.sub(t, 1, string.len(t)-1)
-		end
-		if t ~= "" then
-			local continue = true
-			for i = 1, #channels do
-				if channels[i].name == t then
-					continue = false
-					break
-				end
-			end
-			if continue then
-				local cch = n or #channels+1
-				table.insert(channels, cch,
-				{
-					name = t,
-					type = channelTypes.chip,
-					slots = {},
-					patterns = {},
-					instrument = 1,
-					instruments = {
-						{	-- 1
-							gain		  =	0.75,
-							detune 		  = 0,
-							chorus		  =	{apply = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
-							compressor	  =	false,
-							distortion	  =	{apply = false, gain = 0, edge = 0, lowcut = 0, center = 0, bandwidth = 0},
-							echo		  =	{apply = false, delay = 0, tapdelay = 0, damping = 0, feedback = 0, spread = 0},
-							equalizer	  = {apply = false, lowgain = 0, lowcut = 0, lowmidgrain = 0, lowmidfrequency = 0, lowmidbandwidth = 0,
-											highmidgain = 0, highmidfrequency = 0, highmidbandwidth = 0, highgain = 0, highcut = 0},
-							flanger		  =	{apply = false, waveform = "square", phase = 0, rate = 0, depth = 0, feedback = 0, delay = 0},
-							reverb 		  =	{apply = false, gain = 0, highgain = 0, density = 0, diffusion = 0, decaytime = 0, decayhighratio = 0,
-											earlygain = 0, earlydelay = 0, lategain = 0, latedelay = 0, roomrolloff = 0, airabsorption = 0, highlimit = false},
-							ringmodulator = {apply = false, waveform = "square", frequency = 0, highcut = 0}
-						}
-					}
-					
-				})
-				delta.patterns = 0
-				popup = ""
-				
-				-- select
-				selectedPat[1] = #channels
-				if selectedPat[2] == nil then
-					selectedPat[2] = 1
-				end
-
-				-- no reset
-				if not noReset then
-					AddUndo(datatypes.addChannel, {#channels, t})
-				else
-					delta.channels = 0
-				end
-
-				selection = {{}, {}}
-				ScrollUpdate()
-			end
-		else
-			popup = ""
-		end
-	end
 end
 
 function DrawPopup(p)
@@ -1186,9 +1551,9 @@ function DrawPopup(p)
 		love.graphics.rectangle("fill", x-w/2+out*4, y+out*2, w-out*8, h/5)
 		love.graphics.setColor(theme.input[1], theme.input[2], theme.input[3], delta.popupAddChannel)
 		love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
-		love.graphics.setFont(font40n)
+		love.graphics.setFont(timeburner40n)
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupAddChannel)
-		love.graphics.print("The channel's name:", x-(font40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
+		love.graphics.print("The channel's name:", x-(timeburner40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
 
 		-- button
 		local stop = false
@@ -1223,21 +1588,21 @@ function DrawPopup(p)
 		-- text
 		if text ~= nil then
 			-- setup
-			local tw = font40n:getWidth(text)*scale*0.8
+			local tw = timeburner40n:getWidth(text)*scale*0.8
 			local th = 40*scale*0.8
 			local tx = x-tw/2
 			local ty = y+y/30-th/2
-			local tww = font40n:getWidth(string.sub(text, 1, cursorpos))*scale*0.8
+			local tww = timeburner40n:getWidth(string.sub(text, 1, cursorpos))*scale*0.8
 			local tcw
 
 			-- text draw
 			if text == "" and textSelected == false then
 				love.graphics.setColor(theme.inside[1], theme.inside[2], theme.inside[3], delta.popupAddChannel)
-				love.graphics.print("[ENTER to save]", x-(font40n:getWidth("[ENTER to save]")*scale*0.75)/2, y+y/30, 0, scale*0.8, scale*0.8)
+				love.graphics.print("[ENTER to save]", x-(timeburner40n:getWidth("[ENTER to save]")*scale*0.75)/2, y+y/30, 0, scale*0.8, scale*0.8)
 			else
 				love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.popupAddChannel)
 				love.graphics.print(text, x-tw/2, y+y/30, 0, scale*0.8, scale*0.8)
-				tcw = font40n:getWidth(string.sub(text, cursorpos-1, cursorpos))*scale*0.8
+				tcw = timeburner40n:getWidth(string.sub(text, cursorpos-1, cursorpos))*scale*0.8
 			end
 
 			-- invisible
@@ -1269,6 +1634,7 @@ function love.textinput(tt)
 		text = string.sub(text, 0, 25)
 		timer = 0
 		cursorpos = math.min(cursorpos + 1, 25)
+	elseif keyboardMode ~= keyboardModes.normal then return
 	elseif selectedPat[1] ~= nil then
 		if popup == "" and not settingsWindow then
 			if string.match(tt, "(%d+)") == tt then
@@ -1387,6 +1753,7 @@ function buttonTopLeft(x, y, w, h, b)
 end
 
 function MovePattern(key)
+	love.keyboard.setKeyRepeat(true)
 	if textSelected then
 		if key == "left" then
 			cursorpos = math.max(0, cursorpos-1)
@@ -1485,6 +1852,7 @@ function MovePattern(key)
 end
 
 function love.keypressed(key)
+	NotePreview(key, true)
 	if delta.intro <= 0.99 then
 		if key == "backspace" then
 			if textSelected then
@@ -1531,6 +1899,12 @@ function love.keypressed(key)
 				if popup == popups.addChannel then
 					AddChannel()
 				end
+			elseif popup == "" then
+				if keyboardMode == keyboardModes.normal then
+					keyboardMode = keyboardModes.note
+				elseif keyboardMode == keyboardModes.note then
+					keyboardMode = keyboardModes.normal
+				end
 			end
 		elseif key == "a" then
 			if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
@@ -1568,6 +1942,10 @@ function love.keypressed(key)
 			end
 		end
 	end
+end
+
+function love.keyreleased(key)
+	NotePreview(key, false)
 end
 
 function Approach(a, b, c)
@@ -1733,6 +2111,8 @@ function love.mousepressed(xx, yy, b)
 end
 
 -- Converts HSL to RGB. (input and output range: 0 - 255)
+-- i dont know and i dont wanna know how the hell this fucking robot code works
+-- whats most important is that it does work
 function HSL(h, s, l, a)
 	if s<=0 then return l,l,l,a end
 	h, s, l = h/256*6, s/255, l/255
@@ -1975,7 +2355,6 @@ function Redo()
 		elseif this.datatype == datatypes.removeBar then
 			RemoveBar(this.data[1], true)
 		end
-
 
 		AddUndo(this.datatype, this.data, true)
 		
