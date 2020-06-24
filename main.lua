@@ -48,6 +48,7 @@ function love.load()
 	startTime = love.timer.getTime()
 	cursorReset = false
 	visSpectrum = {}
+	pressed = false
 
 	keys = {
 		"C",
@@ -129,17 +130,17 @@ function love.load()
 	sliderScroll = 0
 	changedCursor = false
 	preview = {}
-
-	cc = {}
-	for i = 1, channelsMax do
-		local ccc = 255/(channelsMax-2)*((channelsMax-i-1)*3.5)%255
-		cc[i] = {{HSL(ccc, 240, 155, 255)}, {HSL(ccc, 75, 150, 120)}}
-	end
 	
 	-- setup
 	if setup == nil then
 		-- require
 		require("luafft")
+
+		cc = {}
+		for i = 1, channelsMax do
+			local ccc = 255/(channelsMax-2)*((channelsMax-i-1)*3.5)%255
+			cc[i] = {{HSL(ccc, 220, 180, 255)}, {HSL(ccc, 75, 150, 120)}}
+		end
 
 		-- tables
 		dropdowns = {
@@ -168,6 +169,7 @@ function love.load()
 		KeybindSet(dropdowns.Edit[14], "right", false, false, true)
 		KeybindSet(dropdowns.Edit[15], "delete", true)
 		KeybindSet(dropdowns.Edit[17], "q", true)
+		KeybindSet("Mute", "m", true)
 
 
 		windows = {
@@ -363,7 +365,7 @@ function love.update(dt)
 
 		-- visualizer
 		local curSound, curData
-		if selectedPat[1] then
+		if selectedPat[1] and #channels > 0 then
 			curSound = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].source[1]
 			curData = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].soundData
 		end
@@ -397,6 +399,9 @@ function love.update(dt)
 	
 			visSpectrum = spec
 		end
+
+		-- pressed
+		if not love.mouse.isDown(1) then pressed = false end
 
 		-- dropdown
 		if dropdown ~= "" then
@@ -515,6 +520,7 @@ function love.draw()
 	sliders = 0
 	lasthover = hover
 	hover = ""
+	ticks = 0
 
 	-- song editor
 	if window == windows.song then
@@ -927,27 +933,33 @@ function love.draw()
 			delta.channels = Approach(delta.channels, 0, math.abs(delta.channels)/5)
 
 			-- visualizer
-			love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], 0.35)
-			local vx, vy, vw, vh = res[1]-boxSize+out*1.5, res[2]-out*6, boxSize-out*2, boxSize/2
-			local bw = math.ceil(vw/(#visSpectrum/2)*0.75)
-			for i = 1, #visSpectrum/2 do
-				local name = "visualizer" .. i
-				if not delta[name] then
-					delta[name] = 0
-				end
-				local dist = math.floor(vw/(#visSpectrum/2))
-				local nn = i
-				if selectedPat[1] then
-					local k = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].key[1]
-					if k then
-						nn = (i-k+5)%(#visSpectrum/2)
-						log = nn
+			do
+				local sel = selectedPat[1]
+				local ins = channels[sel].instruments[channels[sel].instrument]
+				local vol = (ins.gain*(ins.active and 1 or 0))*3
+				local vx, vy, vw, vh = res[1]-boxSize+out*1.5, res[2]-out*6, boxSize-out*2, boxSize/2
+				local bw = math.ceil(vw/(#visSpectrum/2)*0.75)
+				for i = 1, #visSpectrum/2 do
+					local name = "visualizer" .. i
+					if not delta[name] then
+						delta[name] = 0
 					end
+					local dist = math.floor(vw/(#visSpectrum/2))
+					local nn = i
+					if sel then
+						local k = channels[sel].instruments[channels[sel].instrument].key[1]
+						if k then
+							nn = (i-k+5)%(#visSpectrum/2)
+							log = nn
+						end
+					end
+					local v = visSpectrum[nn] or visSpectrum[i]
+					local n = v:abs(), 1
+					delta[name] = Approach(delta[name], n*vol, math.abs(delta[name] - n*vol)/5)
+					local nnn = 2-delta[name]
+					love.graphics.setColor(cc[sel][1][1]/255*nnn, cc[sel][1][2]/255*nnn, cc[sel][1][3]/255*nnn, 0.35)
+					love.graphics.rectangle("fill", (i - 1) * dist + vx, vy, bw, -delta[name]*vh*0.75)
 				end
-				local v = visSpectrum[nn] or visSpectrum[i]
-				local n = v:abs(), 1
-				delta[name] = Approach(delta[name], n, math.abs(delta[name] - n)/5)
-				love.graphics.rectangle("fill", (i - 1) * dist + vx, vy, bw, -delta[name]*vh*0.75)
 			end
 		end
 
@@ -1077,20 +1089,95 @@ function DrawInstrument()
 	if not channels[selectedPat[1]] then return end
 	local x = res[1]-boxSize
 	local y = res[2]/35
-	local ins = channels[selectedPat[1]].instrument
+	local w = boxSize-out*6
+	local h = boxSize/2
+	local ins = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument]
+	local pass, apply
 
-	-- local pass
+	-- chip
+	x = x + out*3
+	y = y + out*3
+	local ccc = cc[selectedPat[1]][1]
+	love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255, 0.075)
+	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(theme.outline)
+	love.graphics.rectangle("line", x, y, w, h)
+	love.graphics.setColor(1, 1, 1, 0.35)
+	love.graphics.draw(s_shadow_box, x, y, 0, w/128, h/128)
 
-	-- channels[selectedPat[1]].instruments[ins].gain, pass = 
-	-- DrawSliderH(x+boxSize-out*4-(25*scale), y+out*3, (30*scale), 220*scale, channels[selectedPat[1]].instruments[ins].gain, 0.25, 0.5)
-	-- if pass then
-	-- 	local ins = channels[selectedPat[1]].instrument
-	-- 	channels[selectedPat[1]].instruments[ins].source[1]:setVolume(channels[selectedPat[1]].instruments[ins].gain)
-	-- end
+	-- gain
+	y = y + out*5 + h
+	w = boxSize/12
+	h = w
+	ins.active, pass = DrawTick(x, y, w, h, delta.instruments, ins.active, true)
+	if pass then apply = true end
 
+	x = x + w + out
+	w = res[1]-x-out*3
+	h = boxSize/18
+	y = y + h/4
+	ins.gain, pass = DrawSliderH(x, y, w, h, delta.instruments, ins.gain, 0.25, 0.5)
+	if pass then apply = true end
+
+	if apply then ApplyEffects() end
 end
 
-function DrawSliderH(x, y, w, h, value, default, max, min)
+function ApplyEffects(ins)
+	if not ins then
+		if not selectedPat[1] then return end
+		ins = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument]
+	end
+
+	ins.source[1]:setVolume(ins.gain*(ins.active and 1 or 0))
+end
+
+function DrawTick(x, y, w, h, a, value, default, tickName)
+	local mouse = love.mouse.isDown(1)
+	local def = love.mouse.isDown(3)
+	local val = value and 1 or 0
+	local sel = selectedPat[1]
+	local tickName = "tick" .. ticks
+	ticks = ticks + 1
+	
+	buttonTopLeft(x, y, w, h, tickName)
+
+	-- tick
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], a)
+	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(cc[sel][1][1]/255, cc[sel][1][2]/255, cc[sel][1][3]/255, a*val)
+	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a)
+	love.graphics.draw(s_shadow_box, x, y, 0, w/128, h/128)
+
+	-- highlight
+	if hover == tickName then
+		if def or mouse then
+			love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/3)
+		else
+			love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/10)
+		end
+		love.graphics.rectangle("fill", x, y, w, h)
+	end
+
+	-- outline
+	love.graphics.setColor(theme.inside)
+	love.graphics.rectangle("fill", x+w/5, y+h/5, w/5*3, h/5*3)
+	love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], a)
+	love.graphics.rectangle("line", x+w/5, y+h/5, w/5*3, h/5*3)
+	love.graphics.rectangle("line", x, y, w, h)
+
+	if hover == tickName then
+		if def then return default, true end
+		if mouse and not pressed then
+			pressed = true
+			return not value, true
+		end
+	end
+
+	return value, false
+end
+
+function DrawSliderH(x, y, w, h, a, value, default, max, min)
 	-- setup
 	local sel = selectedPat[1] or 1
 	if min ~= 0 and min ~= 1 then
@@ -1106,34 +1193,31 @@ function DrawSliderH(x, y, w, h, value, default, max, min)
 	if delta[sliderName] == nil then
 		delta[sliderName] = 0
 	end
-	if delta.instruments > 0.99 then
-		delta[sliderName] = Approach(delta[sliderName], norm, math.abs(delta[sliderName] - norm)/settings.sliderSmoothing)
-	end
+	delta[sliderName] = Approach(delta[sliderName], norm, math.abs(delta[sliderName] - norm)/settings.sliderSmoothing)
 
 	-- slider
-	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.instruments)
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], a)
 	love.graphics.rectangle("fill", x, y, w, h)
-	love.graphics.setColor(cc[sel][1][1], cc[sel][1][2], cc[sel][1][3], delta.instruments)
+	love.graphics.setColor(cc[sel][1][1]/255, cc[sel][1][2]/255, cc[sel][1][3]/255, a)
 	love.graphics.rectangle("fill", x, y, w*delta[sliderName], h)
-	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/2)
+	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/2)
 	love.graphics.draw(s_shadow_rect, x, y, 0, w/128, h/64)
 
 	-- highlight
 	if slider == sliderName or sliderScroll ~= 0 or def then
-		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/6)
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/6)
 	elseif hover == sliderName then
-		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.instruments/20)
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/20)
 	end
 	if hover == sliderName or slider == sliderName then
 		love.graphics.rectangle("fill", x, y, w, h)
 	end
 
 	-- outline
-	love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.instruments)
+	love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], a)
 	love.graphics.rectangle("line", x, y, w, h)
 
 	-- default and return
-	if def then return default*max, true end
 	if hover ~= sliderName then
 		if slider ~= sliderName then
 			if changedCursor == sliderName then
@@ -1153,7 +1237,7 @@ function DrawSliderH(x, y, w, h, value, default, max, min)
 		else
 			div = 20
 		end
-		return Clamp(value-(sliderScroll*max)/div, min, max), true
+		return Clamp(value+(sliderScroll*max)/div, min, max), true
 	end
 
 	-- cursor
@@ -1163,6 +1247,7 @@ function DrawSliderH(x, y, w, h, value, default, max, min)
 		end
 	else
 		if hover == sliderName then
+			if def then return default*max, true end
 			love.mouse.setCursor(cursor.sizeew)
 			changedCursor = sliderName
 		elseif changedCursor == sliderName then
@@ -1177,24 +1262,25 @@ function DrawSliderH(x, y, w, h, value, default, max, min)
 	-- value
 	if slider == sliderName then
 		love.mouse.setVisible(false)
-		value = Clamp(value + (lxx-xxx)/300, min or 0, max)
+		value = Clamp(value + (lxx-xxx)/600, min or 0, max)
 		if mouse then
 			love.mouse.setPosition(xxx, yyy)
 		end
+		return value, true
 	else
 		love.mouse.setVisible(true)
 	end
 
-	return value, true
+	return value, false
 end
 
 function GenerateSamples(channel, freq)
 	local pitch = freq/340
-	local ins = channels[channel].instrument
+	local ins = channels[channel].instruments[channels[channel].instrument]
 	local l = math.ceil(sampleSize/pitch)
-	channels[channel].instruments[ins].soundData = love.sound.newSoundData(l, 44100*(sampleSize/64), 16, 1)
-	local data = channels[channel].instruments[ins].soundData
-	local preset = wavePresets[channels[channel].instruments[ins].preset]
+	ins.soundData = love.sound.newSoundData(l, 44100*(sampleSize/64), 16, 1)
+	local data = ins.soundData
+	local preset = ins.preset
 	log = ""
 	for i = 1, l-1 do
 		local norm = i/math.ceil(sampleSize/pitch)
@@ -1207,17 +1293,17 @@ function GenerateSamples(channel, freq)
 end
 
 function WrapSource(channel, freq)
-	local ins = channels[channel].instrument
-	if channels[channel].instruments[ins].source[1] then
-		channels[channel].instruments[ins].source[1]:stop()
-		channels[channel].instruments[ins].source[1]:release()
+	local ins = channels[channel].instruments[channels[channel].instrument]
+	if ins.source[1] then
+		ins.source[1]:stop()
+		ins.source[1]:release()
 	end
-	channels[channel].instruments[ins].source[1] = love.audio.newSource(channels[channel].instruments[ins].soundData)
-	channels[channel].instruments[ins].key[1] = kfreq[freq]
-	local s = channels[channel].instruments[ins].source[1]
+	ins.source[1] = love.audio.newSource(ins.soundData)
+	ins.key[1] = kfreq[freq]
+	local s = ins.source[1]
+	ApplyEffects(ins)
 
 	-- setup
-	s:setVolume(channels[channel].instruments[ins].gain)
 	s:setLooping(true)
 end
 
@@ -1234,14 +1320,16 @@ function Play(channel, freq)
 end
 
 function Stop(channel)
-	local ins = channels[channel].instrument
-	channels[channel].instruments[ins].source[1]:stop()
+	if not channels[channel] then return end
+	local ins = channels[channel].instruments[channels[channel].instrument]
+	ins.source[1]:stop()
 end
 
 function NotePreview(key, play)
 	love.keyboard.setKeyRepeat(false)
 	if key:match("%c") then return end
 	if keyboardMode ~= keyboardModes.note then return end
+	if popup ~= "" then return end
 	if not selectedPat[1] then return end
 
 	local freq
@@ -1359,8 +1447,8 @@ function AddChannel(noReset, t, n)
 					instrument = 1,
 					instruments = {
 						{	-- 1
-							active		  = false,
-							preset		  = "square",
+							active		  = true,
+							preset		  = wavePresets.square,
 							soundData	  = nil,
 							source		  = {},
 							key			  = {},
@@ -1869,6 +1957,12 @@ function love.keypressed(key)
 		elseif key == keybinds[dropdowns.File[9]][1] then	-- settings
 			if not KeybindPass(dropdowns.File[9]) then return end
 			settingsWindow = true
+		elseif key == keybinds["Mute"][1] then	-- mute
+			if not KeybindPass("Mute") then return end
+			if not selectedPat[1] then return end
+			channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].active =
+			not channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].active
+			ApplyEffects(selectedPat[1])
 		elseif key == "return" then
 			if textSelected then
 				if popup == popups.addChannel then
