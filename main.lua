@@ -73,7 +73,7 @@ function love.load()
 		key = keys[1],
 		patterns = 32,
 		path = "",
-		chordSize = 4,
+		chordSize = 10,
 		instruments = 1,
 	}
 
@@ -94,6 +94,7 @@ function love.load()
 		shadowU = 0,
 		shadowD = 0,
 		instruments = 1,
+		notePreview = 0,
 	}
 
 	settings = {
@@ -101,7 +102,8 @@ function love.load()
 		undos = 128,
 		resizable = false,
 		autoSave = false,
-		sliderSmoothing = 3
+		sliderSmoothing = 3,
+		visualizerAcc = 64
 	}
 
 	sliders = 0
@@ -214,7 +216,7 @@ function love.load()
 		}
 		
 		-- info
-		debug = false
+		debug = true
 		dirSprites = "sprites/"
 		version = "devbuild 6.16.20"
 		appName = "ChipBox"
@@ -365,43 +367,44 @@ function love.update(dt)
 
 		-- visualizer
 		local curSound, curData
-		if selectedPat[1] and #channels > 0 then
-			curSound = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].source[1]
-			curData = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].soundData
+		if selectedPat[1] then
+			if channels[selectedPat[1]] then
+				curSound = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].source
+				curData = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].soundData
+			end
 		end
 		if curSound then
-			local curSample = curSound:tell("samples")
-			local wave = {}
-			local s = 64
-			local size = next_possible_size(s)
-			-- if channels == 2 then
-			--     for i=curSample, (curSample+(size-1) / 2) do
-			--         local sample = (curData:getSample(i * 2) + curData:getSample(i * 2 + 1)) * 0.5
-			--         table.insert(wave,complex.new(sample,0))
-			-- 	end
-			-- else
-			for i = curSample, curSample + (size - 1) do
-				log = i
-				table.insert(wave, complex.new(curData:getSample(math.max(0, i - s)), 0))
-			end
-	
-			local spec = fft(wave, false)
-			--local reconstructed = fft(spec,true)
-	
-			function divide(list, factor)
-				for i, v in ipairs(list) do
-					list[i] = list[i] / factor
+			for source = 1, song.chordSize do
+				if not curSound[source] then break end
+				local curSample = curSound[source]:tell("samples")
+				local wave = {}
+				local s = settings.visualizerAcc
+				local size = next_possible_size(s)
+				-- if channels == 2 then
+				--     for i=curSample, (curSample+(size-1) / 2) do
+				--         local sample = (curData:getSample(i * 2) + curData:getSample(i * 2 + 1)) * 0.5
+				--         table.insert(wave,complex.new(sample,0))
+				-- 	end
+				-- else
+				for i = curSample, curSample + (size - 1) do
+					table.insert(wave, complex.new(curData[source]:getSample(math.max(0, i - s)), 0))
 				end
+		
+				local spec = fft(wave, false)
+				--local reconstructed = fft(spec,true)
+		
+				function divide(list, factor)
+					for i, v in ipairs(list) do
+						list[i] = list[i] / factor
+					end
+				end
+		
+				--divide(reconstructed,size)
+				divide(spec, size / 2)
+		
+				visSpectrum[source] = spec
 			end
-	
-			--divide(reconstructed,size)
-			divide(spec, size / 2)
-	
-			visSpectrum = spec
 		end
-
-		-- pressed
-		if not love.mouse.isDown(1) then pressed = false end
 
 		-- dropdown
 		if dropdown ~= "" then
@@ -855,6 +858,12 @@ function love.draw()
 		love.graphics.setColor(theme.outline)
 		love.graphics.rectangle("line", res[1]*delta.channels, res[2]-boxSize, res[1]-boxSize, boxSize)
 		love.graphics.rectangle("line", res[1]*delta.channels+out, res[2]-boxSize+out, res[1]-boxSize-out*2, boxSize-out*7)
+		do
+			local v = (keyboardMode == keyboardModes.note) and 1 or 0
+			delta.notePreview = Approach(delta.notePreview, v, math.abs(delta.notePreview - v)/2)
+		end
+		love.graphics.setColor(theme.inside[1], theme.inside[2], theme.inside[3], delta.notePreview/1.5)
+		love.graphics.rectangle("fill", res[1]*delta.channels+out, res[2]-boxSize+out, res[1]-boxSize-out*2, boxSize-out*7)
 
 		------------------------------------------
 
@@ -937,28 +946,32 @@ function love.draw()
 				local sel = selectedPat[1]
 				local ins = channels[sel].instruments[channels[sel].instrument]
 				local vol = (ins.gain*(ins.active and 1 or 0))*3
-				local vx, vy, vw, vh = res[1]-boxSize+out*1.5, res[2]-out*6, boxSize-out*2, boxSize/2
-				local bw = math.ceil(vw/(#visSpectrum/2)*0.75)
-				for i = 1, #visSpectrum/2 do
+				local vx, vy, vw, vh = res[1]-boxSize+out*1.25, res[2]-out*6, boxSize-out*4, boxSize/2
+				local times = #visSpectrum[1]/2
+				local dist = math.ceil(vw/times)
+				local bw = dist*0.75
+				for i = 1, times do
 					local name = "visualizer" .. i
 					if not delta[name] then
 						delta[name] = 0
 					end
-					local dist = math.floor(vw/(#visSpectrum/2))
 					local nn = i
-					if sel then
-						local k = channels[sel].instruments[channels[sel].instrument].key[1]
-						if k then
-							nn = (i-k+5)%(#visSpectrum/2)
-							log = nn
+					local n = 0
+					for ii = 1, song.chordSize do
+						if not visSpectrum[ii] then break end
+						if sel then
+							local k = channels[sel].instruments[channels[sel].instrument].key[ii]
+							if k then
+								nn = (i-k)%times
+							end
 						end
+						local v = visSpectrum[ii][nn] or visSpectrum[ii][i]
+						n = math.min(1, n + v:abs())
 					end
-					local v = visSpectrum[nn] or visSpectrum[i]
-					local n = v:abs(), 1
 					delta[name] = Approach(delta[name], n*vol, math.abs(delta[name] - n*vol)/5)
-					local nnn = 2-delta[name]
+					local nnn = math.max(1, 2-delta[name])
 					love.graphics.setColor(cc[sel][1][1]/255*nnn, cc[sel][1][2]/255*nnn, cc[sel][1][3]/255*nnn, 0.35)
-					love.graphics.rectangle("fill", (i - 1) * dist + vx, vy, bw, -delta[name]*vh*0.75)
+					love.graphics.rectangle("fill", (i - 1) * dist + vx, vy, bw, -math.min(boxSize-out*8, delta[name]*vh*0.85)*math.max(1, (settings.visualizerAcc/64)))
 				end
 			end
 		end
@@ -1082,6 +1095,7 @@ function love.draw()
 		cursorReset = false
 	end
 	sliderScroll = 0
+	pressed = false
 end
 
 function DrawInstrument()
@@ -1100,6 +1114,11 @@ function DrawInstrument()
 	local ccc = cc[selectedPat[1]][1]
 	love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255, 0.075)
 	love.graphics.rectangle("fill", x, y, w, h)
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], 1/2)
+	love.graphics.line(x, y+h/2, x+w, y+h/2)
+	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], 1/6)
+	love.graphics.line(x, y+h/4, x+w, y+h/4)
+	love.graphics.line(x, y+h/4*3, x+w, y+h/4*3)
 	love.graphics.setColor(theme.outline)
 	love.graphics.rectangle("line", x, y, w, h)
 	love.graphics.setColor(1, 1, 1, 0.35)
@@ -1122,13 +1141,23 @@ function DrawInstrument()
 	if apply then ApplyEffects() end
 end
 
-function ApplyEffects(ins)
+function ApplyEffects(ins, src)
 	if not ins then
 		if not selectedPat[1] then return end
 		ins = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument]
 	end
+	if src then
+		Effects(ins, src)
+	else
+		for i = 1, song.chordSize do
+			Effects(ins, i)
+		end
+	end
+end
 
-	ins.source[1]:setVolume(ins.gain*(ins.active and 1 or 0))
+function Effects(ins, src)
+	if not ins.source[src] then return end
+	ins.source[src]:setVolume((ins.gain*(ins.active and 1 or 0)))
 end
 
 function DrawTick(x, y, w, h, a, value, default, tickName)
@@ -1168,8 +1197,7 @@ function DrawTick(x, y, w, h, a, value, default, tickName)
 
 	if hover == tickName then
 		if def then return default, true end
-		if mouse and not pressed then
-			pressed = true
+		if pressed then
 			return not value, true
 		end
 	end
@@ -1274,55 +1302,99 @@ function DrawSliderH(x, y, w, h, a, value, default, max, min)
 	return value, false
 end
 
-function GenerateSamples(channel, freq)
+function GenerateSamples(channel, freq, src)
 	local pitch = freq/340
 	local ins = channels[channel].instruments[channels[channel].instrument]
 	local l = math.ceil(sampleSize/pitch)
-	ins.soundData = love.sound.newSoundData(l, 44100*(sampleSize/64), 16, 1)
-	local data = ins.soundData
+	ins.soundData[src] = love.sound.newSoundData(l, 44100*(sampleSize/64), 16, 1)
+	local data = ins.soundData[src]
 	local preset = ins.preset
-	log = ""
 	for i = 1, l-1 do
 		local norm = i/math.ceil(sampleSize/pitch)
 		local n = preset[math.ceil(norm*#preset)]
-		log = log .. tostring(n)
-		if i == math.ceil(l/2) then log = log .. "\n" end
 		data:setSample(i, n)
 	end
-	WrapSource(channel, freq)
+	WrapSource(channel, freq, src)
 end
 
-function WrapSource(channel, freq)
+function WrapSource(channel, freq, src)
 	local ins = channels[channel].instruments[channels[channel].instrument]
-	if ins.source[1] then
-		ins.source[1]:stop()
-		ins.source[1]:release()
+	if ins.source[src] then
+		ins.source[src]:stop()
+		ins.source[src]:release()
 	end
-	ins.source[1] = love.audio.newSource(ins.soundData)
-	ins.key[1] = kfreq[freq]
-	local s = ins.source[1]
-	ApplyEffects(ins)
+	ins.source[src] = love.audio.newSource(ins.soundData[src])
+	ins.key[src] = kfreq[freq]
 
 	-- setup
+	local s = ins.source[src]
+	ApplyEffects(ins)
 	s:setLooping(true)
 end
 
-function Play(channel, freq)
+function Play(channel, freq, key)
 	if not freq then return end
 	if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") or
 	love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") or
 	love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then return end
-	local s = channels[channel].instruments[channels[channel].instrument].source[1]
-	if s:isPlaying() then Stop(channel) end
-	GenerateSamples(channel, freq)
-	s = channels[channel].instruments[channels[channel].instrument].source[1]
+
+	local ins = channels[channel].instruments[channels[channel].instrument]
+
+	local src
+	for i = 1, song.chordSize do
+		if src then break end
+		if channels[channel].playing[i] == nil then
+			src = i
+		end
+	end
+
+	if not src then src = song.chordSize end
+
+	channels[channel].playing[src] = key
+	log = ""
+	for i = 1, song.chordSize do
+		log = log .. tostring(channels[channel].playing[i] or "-") .. "\n"
+	end
+	local s = ins.source[src]
+	GenerateSamples(channel, freq, src)
+	s = ins.source[src]
 	s:play()
 end
 
-function Stop(channel)
+function Stop(channel, key)
 	if not channels[channel] then return end
 	local ins = channels[channel].instruments[channels[channel].instrument]
-	ins.source[1]:stop()
+	local source
+	for i = 1, #channels[channel].playing do
+		if channels[channel].playing[i] == key then
+			source = i
+		end
+	end
+	if key == nil then
+		channels[channel].playing = {}
+		for i = 1, song.chordSize do
+			if ins.source[i] then
+				ins.source[i]:stop()
+			end
+		end
+		return
+	end
+	if not ins.source[source] then
+		channels[channel].playing = {}
+		for i = 1, song.chordSize do
+			if ins.source[i] then
+				ins.source[i]:stop()
+			end
+		end
+		source = song.chordSize
+	end
+	channels[channel].playing[source] = nil
+	ins.source[source]:stop()
+
+	log = ""
+	for i = 1, song.chordSize do
+		log = log .. tostring(channels[channel].playing[i] or "-") .. "\n"
+	end
 end
 
 function NotePreview(key, play)
@@ -1331,11 +1403,11 @@ function NotePreview(key, play)
 	if keyboardMode ~= keyboardModes.note then return end
 	if popup ~= "" then return end
 	if not selectedPat[1] then return end
+	if playing then return end
 
 	local freq
 
-	if key == "" then
-	elseif key == "]" then
+	if key == "]" then
 		freq = frequency["G5"]
 	elseif key == "=" then
 		freq = frequency["F#5"]
@@ -1413,10 +1485,11 @@ function NotePreview(key, play)
 		freq = frequency["C3"]
 	end
 
-	if play then
-		Play(selectedPat[1], freq)
+	if not freq	then return end
+	if not play then
+		Stop(selectedPat[1], key)
 	else
-		Stop(selectedPat[1])
+		Play(selectedPat[1], freq, key)
 	end
 end
 
@@ -1440,16 +1513,17 @@ function AddChannel(noReset, t, n)
 				local cch = n or #channels+1
 				table.insert(channels, cch,
 				{
-					name = t,
-					type = channelTypes.wave,
-					slots = {},
-					patterns = {},
-					instrument = 1,
+					name 		= t,
+					type 		= channelTypes.wave,
+					slots 		= {},
+					patterns 	= {},
+					instrument	= 1,
+					playing		= {},
 					instruments = {
 						{	-- 1
 							active		  = true,
 							preset		  = wavePresets.square,
-							soundData	  = nil,
+							soundData	  = {},
 							source		  = {},
 							key			  = {},
 							gain		  =	0.25,
@@ -1469,7 +1543,9 @@ function AddChannel(noReset, t, n)
 					}
 					
 				})
-				GenerateSamples(cch, 1)
+				for i = 1, song.chordSize do
+					GenerateSamples(cch, 1, i)
+				end
 				delta.patterns = 0
 				popup = ""
 				
@@ -1537,7 +1613,7 @@ function DrawSettings()
 	love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
 	love.graphics.setFont(timeburner40n)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupSaveSettings)
-	love.graphics.print("The channel's name:", x-(timeburner40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
+	love.graphics.print("Channel name:", x-(timeburner40n:getWidth("Channel name:")*scale)/2, y-y/10, 0, scale, scale)
 end
 
 function DrawMenuTop(sss)
@@ -1616,7 +1692,7 @@ function DrawPopup(p)
 		love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
 		love.graphics.setFont(timeburner40n)
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupAddChannel)
-		love.graphics.print("The channel's name:", x-(timeburner40n:getWidth("The channel's name:")*scale)/2, y-y/10, 0, scale, scale)
+		love.graphics.print("Channel name:", x-(timeburner40n:getWidth("Channel name:")*scale)/2, y-y/10, 0, scale, scale)
 
 		-- button
 		local stop = false
@@ -1866,6 +1942,7 @@ function MovePattern(key)
 			end
 		elseif key == "up" then
 			if selectedPat[1] ~= nil then
+				Stop(selectedPat[1])
 				canMult = false
 				selectedPat[1] = selectedPat[1] - 1
 				if selectedPat[1] < 1 then
@@ -1876,6 +1953,7 @@ function MovePattern(key)
 			end
 		elseif key == "down" then
 			if selectedPat[1] ~= nil then
+				Stop(selectedPat[1])
 				canMult = false
 				selectedPat[1] = selectedPat[1] + 1
 				if selectedPat[1] > #channels then
@@ -2111,6 +2189,9 @@ function love.mousepressed(xx, yy, b)
 		end
 	end
 	if b == 1 then
+		if popup == "" then
+			pressed = true
+		end
 		if hover == "addChannel" then
 			popup = popups.addChannel
 		elseif hover == "textInput" then
