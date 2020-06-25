@@ -80,7 +80,9 @@ function love.load()
 	delta = {
 		addChannel = 0,
 		nameChannel = 0,
+		renameChannel = 0,
 		popupAddChannel = 0,
+		popupRenameChannel = 0,
 		popupSaveSettings = 0,
 		channels = 1,
 		editor = 0,
@@ -236,6 +238,7 @@ function love.load()
 		else
 			feedbackURL = "https://docs.google.com/forms/d/e/1FAIpQLSdzgGHqSVmXrGyZFRfgp1JXJ8c5RSm7bwv1D2ykMg6DVikkLQ/viewform"
 		end
+		manualURL = "https://sites.google.com/view/chipbox"
 
 		degToRad = 0.017453
 		sampleSize = 64
@@ -271,7 +274,8 @@ function love.load()
 			arrow = love.mouse.getSystemCursor("arrow"),
 			hand = love.mouse.getSystemCursor("hand"),
 			sizeew = love.mouse.getSystemCursor("sizewe"),
-			sizens = love.mouse.getSystemCursor("sizens")
+			sizens = love.mouse.getSystemCursor("sizens"),
+			ibeam = love.mouse.getSystemCursor("ibeam"),
 		}
 
 		-- channel types
@@ -303,7 +307,8 @@ function love.load()
 			addChannel = 1,
 			quit = 2,
 			songSettings = 3,
-			saveSettings = 4
+			saveSettings = 4,
+			renameChannel = 5,
 		}
 		
 		-- resolution
@@ -914,6 +919,7 @@ function love.draw()
 			love.graphics.setColor(theme.outline)
 			love.graphics.draw(s_highlight1, res[1]-boxSize/2, res[2]-boxSize*0.8, 180*degToRad, scale*1.30, scale*1.01, 172/2, 35/2)
 			if selectedPat[1] then
+				local pass
 				local t = channels[selectedPat[1]].name
 				if selection[2][1] then
 					if selection[1][1] ~= selection[2][1] then
@@ -935,9 +941,20 @@ function love.draw()
 				if wrap then
 					t = t .. "..."
 				end
-				PrintOutline(t, res[1]-boxSize/2-w/2,
-					res[2]-boxSize*0.8-(timeburner26n:getHeight("A")*(scale*1.1))/2, scale*1.15, scale*1.1, 1.15
-				)
+				w = timeburner26n:getWidth(t)*(scale*1.15)
+				local h = timeburner26n:getHeight("A")*(scale*1.1)
+				local x, y = res[1]-boxSize/2-w/2, res[2]-boxSize*0.8-h/2
+				PrintOutline(t, x, y, scale*1.15, scale*1.1, 1.15)
+				if not pass then -- *if pass, just more convenient*
+					buttonTopLeft(x, y, w, h, "renameChannel")
+				end
+				if hover == "renameChannel" then
+					changedCursor = hover
+					love.mouse.setCursor(cursor.ibeam)
+				elseif changedCursor == "renameChannel" then
+					changedCursor = ""
+					cursorReset = true
+				end
 			end
 			delta.channels = Approach(delta.channels, 0, math.abs(delta.channels)/5)
 
@@ -998,6 +1015,7 @@ function love.draw()
 		DrawSettings()
 
 		DrawPopup(popups.addChannel)
+		DrawPopup(popups.renameChannel)
 
 		-----------------------------------------------
 
@@ -1135,7 +1153,7 @@ function DrawInstrument()
 	w = res[1]-x-out*3
 	h = boxSize/18
 	y = y + h/4
-	ins.gain, pass = DrawSliderH(x, y, w, h, delta.instruments, ins.gain, 0.25, 0.5)
+	ins.gain, pass = DrawSlider(x, y, w, h, ins.active, delta.instruments, ins.gain, 0.25, 0.5)
 	if pass then apply = true end
 
 	if apply then ApplyEffects() end
@@ -1205,9 +1223,10 @@ function DrawTick(x, y, w, h, a, value, default, tickName)
 	return value, false
 end
 
-function DrawSliderH(x, y, w, h, a, value, default, max, min)
+function DrawSlider(x, y, w, h, cbool, a, value, default, max, min)
 	-- setup
 	local sel = selectedPat[1] or 1
+	local ccc = cbool and 1 or 2
 	if min ~= 0 and min ~= 1 then
 		min = (min or 0)/max
 	end
@@ -1226,7 +1245,7 @@ function DrawSliderH(x, y, w, h, a, value, default, max, min)
 	-- slider
 	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], a)
 	love.graphics.rectangle("fill", x, y, w, h)
-	love.graphics.setColor(cc[sel][1][1]/255, cc[sel][1][2]/255, cc[sel][1][3]/255, a)
+	love.graphics.setColor(cc[sel][ccc][1]/255, cc[sel][ccc][2]/255, cc[sel][ccc][3]/255, a)
 	love.graphics.rectangle("fill", x, y, w*delta[sliderName], h)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/2)
 	love.graphics.draw(s_shadow_rect, x, y, 0, w/128, h/64)
@@ -1269,11 +1288,12 @@ function DrawSliderH(x, y, w, h, a, value, default, max, min)
 	end
 
 	-- cursor
-	if mouse then
+	if pressed then
 		if hover == sliderName then
 			slider = sliderName
 		end
-	else
+	end
+	if not mouse then
 		if hover == sliderName then
 			if def then return default*max, true end
 			love.mouse.setCursor(cursor.sizeew)
@@ -1493,11 +1513,23 @@ function NotePreview(key, play)
 	end
 end
 
+function RenameChannel(noReset, t, n)
+	t = t or text
+	n = n or selectedPat[1]
+	while string.sub(t, string.len(t)) == " " do
+		t = string.sub(t, 1, string.len(t)-1)
+	end
+	if t ~= "" then
+		if t ~= channels[n].name then
+			channels[n].name = t
+		end
+	end
+	popup = ""
+end
+
 function AddChannel(noReset, t, n)
 	if #channels < channelsMax then
-		if t == nil then
-			t = text
-		end
+		t = t or text
 		while string.sub(t, string.len(t)) == " " do
 			t = string.sub(t, 1, string.len(t)-1)
 		end
@@ -1656,7 +1688,7 @@ function DrawPopup(p)
 			if #channels >= channelsMax then
 				popup = ""
 			else
-				buttonCenter(x, y+h/2.4, out*16, out*5, "nameChannel")
+				buttonCenter(x, y+h/2.4, out*16, out*5, "NameChannel")
 				buttonTopLeft(x-w/2+out*4+1, y+out+1, w-out*8-2, h/4-2, "textInput")
 				delta.popupAddChannel = Approach(delta.popupAddChannel, 1, math.abs(delta.popupAddChannel - 1)/2)
 				if text == nil then
@@ -1668,10 +1700,12 @@ function DrawPopup(p)
 		else
 			-- off
 			delta.popupAddChannel = Approach(delta.popupAddChannel, 0, math.abs(delta.popupAddChannel)/2)
-			if text ~= nil then
-				text = nil
-				cursorpos = 0
-				textSelected = false
+			if popup == "" then
+				if text ~= nil then
+					text = nil
+					cursorpos = 0
+					textSelected = false
+				end
 			end
 		end
 
@@ -1708,7 +1742,7 @@ function DrawPopup(p)
 			end
 		end
 		if not stop then
-			if hover == "nameChannel" then
+			if hover == "NameChannel" then
 				love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupAddChannel)
 				delta.nameChannel = Approach(delta.nameChannel, 1, math.abs(delta.nameChannel - 1)/2)
 			else
@@ -1740,6 +1774,126 @@ function DrawPopup(p)
 				love.graphics.print("[ENTER to save]", x-(timeburner40n:getWidth("[ENTER to save]")*scale*0.75)/2, y+y/30, 0, scale*0.8, scale*0.8)
 			else
 				love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.popupAddChannel)
+				love.graphics.print(text, x-tw/2, y+y/30, 0, scale*0.8, scale*0.8)
+				tcw = timeburner40n:getWidth(string.sub(text, cursorpos-1, cursorpos))*scale*0.8
+			end
+
+			-- invisible
+			if textSelected == false then
+				love.graphics.setColor(0, 0, 0, 0)
+			end
+
+			-- draw
+			if timer < 30 then
+				love.graphics.rectangle("fill", tx+tww-1, ty+th/2, 1, th)
+			end
+			-- timer
+			if timer >= 60 then
+				timer = 0
+			else
+				timer = timer + 1
+			end
+		end
+	elseif p == popups.renameChannel then
+		-- setup
+		local x, y, w, h
+		x = res[1]/2
+		y = res[2]/2
+		w = res[1]/2.75
+		h = res[2]/5
+
+		-- app
+		if popup == p then
+			-- on
+			if #channels >= channelsMax then
+				popup = ""
+			else
+				buttonCenter(x, y+h/2.4, out*16, out*5, "RenameChannel")
+				buttonTopLeft(x-w/2+out*4+1, y+out+1, w-out*8-2, h/4-2, "textInput")
+				delta.popupRenameChannel = Approach(delta.popupRenameChannel, 1, math.abs(delta.popupRenameChannel - 1)/2)
+				if text == nil then
+					text = ""
+					textSelected = true
+					cursorpos = string.len(text)
+				end
+			end
+		else
+			-- off
+			delta.popupRenameChannel = Approach(delta.popupRenameChannel, 0, math.abs(delta.popupRenameChannel)/2)
+			if popup == "" then
+				if text ~= nil then
+					text = nil
+					cursorpos = 0
+					textSelected = false
+				end
+			end
+		end
+
+		-- draw
+		love.graphics.setColor(theme.dark[1], theme.dark[2], theme.dark[3], delta.popupRenameChannel/2)
+		love.graphics.rectangle("fill", 0, 0, res[1], res[2])
+		love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2-1, y-h/2-1, w+2, h+2)
+		love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2, y-h/2, w, h)
+		love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2+out-1, y-h/2+out-1, w-out*2+2, h-out*7+2)
+		love.graphics.setColor(theme.inside[1], theme.inside[2], theme.inside[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2+out, y-h/2+out, w-out*2, h-out*7)
+		love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2+out*4, y+out*2, w-out*8, h/5)
+		love.graphics.setColor(theme.input[1], theme.input[2], theme.input[3], delta.popupRenameChannel)
+		love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
+		love.graphics.setFont(timeburner40n)
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupRenameChannel)
+		love.graphics.print("Rename:", x-(timeburner40n:getWidth("Rename:")*scale)/2, y-y/10, 0, scale, scale)
+
+		-- button
+		local stop = false
+		local t = text
+		if t ~= nil then
+			while string.sub(t, string.len(t)) == " " do
+				t = string.sub(t, 1, string.len(t)-1)
+			end
+		end
+		for i = 1, #channels do
+			if channels[i].name == t then
+				stop = true
+			end
+		end
+		if not stop then
+			if hover == "RenameChannel" then
+				love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupRenameChannel)
+				delta.renameChannel = Approach(delta.renameChannel, 1, math.abs(delta.renameChannel - 1)/2)
+			else
+				love.graphics.setColor(theme.light2[1], theme.light2[2], theme.light2[3], delta.popupRenameChannel)
+				delta.renameChannel = Approach(delta.renameChannel, 0, math.abs(delta.renameChannel)/3)
+			end
+		else
+			love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], delta.popupRenameChannel)
+			delta.renameChannel = Approach(delta.renameChannel, 0, math.abs(delta.renameChannel)/3)
+		end
+		love.graphics.draw(s_check, x-out*1.5, math.ceil(y+h/2.5)-out, 0, out/7*0.6, out/7*0.6)
+		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.renameChannel)
+		love.graphics.draw(s_highlight1, x, math.ceil(y+h/2.5-1), 0, scale*delta.renameChannel*0.8, scale*0.73, 172/2, 28/2)
+		love.graphics.draw(s_highlight3, x, math.ceil(y+h/2.5-1), 0, scale*delta.renameChannel*0.8, scale*0.73, 172/2, 28/2)
+		
+		-- text
+		if text ~= nil then
+			-- setup
+			local tw = timeburner40n:getWidth(text)*scale*0.8
+			local th = 40*scale*0.8
+			local tx = x-tw/2
+			local ty = y+y/30-th/2
+			local tww = timeburner40n:getWidth(string.sub(text, 1, cursorpos))*scale*0.8
+			local tcw
+
+			-- text draw
+			if text == "" and textSelected == false then
+				love.graphics.setColor(theme.inside[1], theme.inside[2], theme.inside[3], delta.popupRenameChannel)
+				love.graphics.print("[ENTER to save]", x-(timeburner40n:getWidth("[ENTER to save]")*scale*0.75)/2, y+y/30, 0, scale*0.8, scale*0.8)
+			else
+				love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], delta.popupRenameChannel)
 				love.graphics.print(text, x-tw/2, y+y/30, 0, scale*0.8, scale*0.8)
 				tcw = timeburner40n:getWidth(string.sub(text, cursorpos-1, cursorpos))*scale*0.8
 			end
@@ -1997,10 +2151,24 @@ function love.keypressed(key)
 	if delta.intro <= 0.99 then
 		if key == "backspace" then
 			if textSelected then
+				love.keyboard.setKeyRepeat(true)
 				local t = {string.sub(text, 0, cursorpos), string.sub(text, cursorpos+1, string.len(text))}
-				text = string.sub(t[1], 0, string.len(t[1])-1) .. t[2]
+				if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+					if string.sub(text, cursorpos, cursorpos) == " " then
+						text = string.sub(t[1], 0, string.len(t[1])-1) .. t[2]
+						cursorpos = math.max(0, cursorpos-1)
+						t = {string.sub(text, 0, cursorpos), string.sub(text, cursorpos+1, string.len(text))}
+					end
+					while string.len(t[1]) > 0 and string.sub(text, cursorpos, cursorpos) ~= " " do
+						text = string.sub(t[1], 0, string.len(t[1])-1) .. t[2]
+						cursorpos = math.max(0, cursorpos-1)
+						t = {string.sub(text, 0, cursorpos), string.sub(text, cursorpos+1, string.len(text))}
+					end
+				else
+					text = string.sub(t[1], 0, string.len(t[1])-1) .. t[2]
+					cursorpos = math.max(0, cursorpos-1)
+				end
 				timer = 0
-				cursorpos = math.max(0, cursorpos-1)
 			end
 		elseif key == "delete" then
 			if textSelected then
@@ -2045,6 +2213,8 @@ function love.keypressed(key)
 			if textSelected then
 				if popup == popups.addChannel then
 					AddChannel()
+				elseif popup == popups.renameChannel then
+					RenameChannel()
 				end
 			elseif popup == "" then
 				if keyboardMode == keyboardModes.normal then
@@ -2076,6 +2246,8 @@ function love.keypressed(key)
 		else
 			love.system.openURL(feedbackURL)
 		end
+	elseif key == "f1" then
+		love.system.openURL(manualURL)
 	elseif key == "l" then
 		if love.keyboard.isDown("lalt") or love.keyboard.isDown("ralt") then
 			love.load()
@@ -2170,7 +2342,7 @@ end
 
 function love.mousepressed(xx, yy, b)
 	if popup ~= "" then
-		if popup == popups.addChannel then
+		if popup == popups.addChannel or popup == popups.renameChannel then
 			local x, y, w, h
 			x = res[1]/2
 			y = res[2]/2
@@ -2194,10 +2366,14 @@ function love.mousepressed(xx, yy, b)
 		end
 		if hover == "addChannel" then
 			popup = popups.addChannel
+		elseif hover == "renameChannel" then
+			popup = popups.renameChannel
 		elseif hover == "textInput" then
 			textSelected = true
-		elseif hover == "nameChannel" then
+		elseif hover == "NameChannel" then
 			AddChannel()
+		elseif hover == "RenameChannel" then
+			RenameChannel()
 		elseif string.match(hover, "(ch)%d+") == "ch" then
 			if hoverPattern then
 				if selection[1][1] ~= nil then
@@ -2351,7 +2527,7 @@ function AddBar(n, v, noReset)
 	for iw = song.length-1, n, -1 do
 		for ih = 1, #channels do
 			channels[ih].slots[iw+1] = channels[ih].slots[iw]
-			channels[ih].slots[iw] = v[ih] or 0
+			channels[ih].slots[iw] = v and v[ih] or 0
 		end
 	end
 	if not noReset then
