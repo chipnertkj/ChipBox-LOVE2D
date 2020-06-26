@@ -68,6 +68,7 @@ function love.load()
 	-- song setup
 	channels = {}
 	channelsMax = 24
+	channelLimit = false
 	song = {
 		length = 64,
 		key = keys[1],
@@ -85,7 +86,7 @@ function love.load()
 		popupRenameChannel = 0,
 		popupSaveSettings = 0,
 		channels = 1,
-		editor = 0,
+		roll = 0,
 		intro = 1,
 		introW = 0,
 		patterns = 0,
@@ -97,6 +98,7 @@ function love.load()
 		shadowD = 0,
 		instruments = 1,
 		notePreview = 0,
+		notification = 0
 	}
 
 	settings = {
@@ -134,7 +136,12 @@ function love.load()
 	sliderScroll = 0
 	changedCursor = false
 	preview = {}
-	
+	notification = ""
+	notificationTime = 0
+	notificationSpeed = 0
+
+	Notify("New Song", 5*60)
+
 	-- setup
 	if setup == nil then
 		-- require
@@ -142,7 +149,7 @@ function love.load()
 
 		cc = {}
 		for i = 1, channelsMax do
-			local ccc = 255/(channelsMax-2)*((channelsMax-i-1)*3.5)%255
+			local ccc = 255/(channelsMax-2)*((channelsMax-i)*3.5)%255
 			cc[i] = {{HSL(ccc, 220, 180, 255)}, {HSL(ccc, 75, 150, 120)}}
 		end
 
@@ -151,7 +158,11 @@ function love.load()
 				--	1				2			3			4		5		6			7		8			9		10		11
 			File = {"New File", "Open File", "Open Recent", "-", "Save", "Save As...", "-", "Auto Save", "Settings", "-", "Exit"},
 				--	1		2		3		4		5		6		7		8		9		10				11						12				13				14				15			16		17
-			Edit = {"Undo", "Redo", "-", "Cut", "Copy", "Paste", "-", "Select All", "-", "Add Channel", "Remove Selected Channels", "-", "Insert Bar Before", "Insert Bar After", "Remove Bar", "-", "Song Settings"}
+			Edit = {"Undo", "Redo", "-", "Cut", "Copy", "Paste", "-", "Select All", "-", "Add Channel", "Remove Selected Channels", "-", "Insert Bar Before", "Insert Bar After", "Remove Bar", "-", "Song Settings"},
+
+			View = {"Theme", "-", "Fullscreen", "Resizable Window", "-", "Song Player"},
+
+			Help = {"About", "Documentation", "Release Notes", "-", "Give Feedback", "-", "Search...", "-", "Reset UI", "Force Restart"}
 		}
 
 		keybinds = {}
@@ -161,7 +172,6 @@ function love.load()
 		KeybindSet(dropdowns.File[5], "s", true)
 		KeybindSet(dropdowns.File[6], "s", true, true)
 		KeybindSet(dropdowns.File[9], ",", true)
-		KeybindSet(dropdowns.File[11], "f4", false, false, true)
 		KeybindSet(dropdowns.Edit[1], "z", true)
 		KeybindSet(dropdowns.Edit[2], "z", true, true)
 		KeybindSet(dropdowns.Edit[4], "x", true)
@@ -523,6 +533,17 @@ function love.update(dt)
 	end
 end
 
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+
 -- draw
 function love.draw()
 	sliders = 0
@@ -554,26 +575,23 @@ function love.draw()
 		
 		------------------------------
 
-		-- editor
+		-- piano roll
 		-- outside
+		local x, y, w, h = 0, res[2]*(1-delta.roll)+res[2]/35, res[1]-boxSize, res[2]-boxSize-out*5
 		love.graphics.setColor(theme.outside)
-		love.graphics.rectangle("fill", 0, res[2]*(1-delta.editor)+res[2]/35, res[1]-boxSize, res[2]-boxSize)
+		love.graphics.rectangle("fill", x, y, w, h)
 		-- inside
 		love.graphics.setColor(theme.inside)
-		love.graphics.rectangle("fill", out, res[2]*(1-delta.editor)+res[2]/35+out, res[1]-boxSize-out*2, res[2]-boxSize-res[2]/35-out*2)
+		love.graphics.rectangle("fill", x+out, y+out, w-out*2, h-out*2)
 		-- outline
 		love.graphics.setColor(theme.outline)
-		love.graphics.rectangle("line", 0, res[2]*(1-delta.editor)+res[2]/35, res[1]-boxSize, res[2]-boxSize)
-		love.graphics.rectangle("line", out, res[2]*(1-delta.editor)+res[2]/35+out, res[1]-boxSize-out*2, res[2]-boxSize-res[2]/35-out*2)
+		love.graphics.rectangle("line", x, y, w, h)
+		love.graphics.rectangle("line", x+out, y+out, w-out*2, h-out*2)
 		
 		if selectedPat[1] ~= nil and #channels > 0 and channels[selectedPat[1]] and delta.channels < 0.01 then
-			if channels[selectedPat[1]].slots[selectedPat[2]] ~= 0 and channels[selectedPat[1]].slots[selectedPat[2]] ~= nil then
-				delta.editor = Approach(delta.editor, 1, math.abs(delta.editor - 1)/5)
-			else
-				delta.editor = Approach(delta.editor, 0, math.abs(delta.editor)/6)
-			end
+			delta.roll = Approach(delta.roll, 1, math.abs(delta.roll - 1)/5)
 		else
-			delta.editor = Approach(delta.editor, 0, math.abs(delta.editor)/3)
+			delta.roll = Approach(delta.roll, 0, math.abs(delta.roll)/3)
 		end
 
 		---------------------------------------------
@@ -669,9 +687,9 @@ function love.draw()
 					end
 					local ccc
 					if channels[ih].patterns[channels[ih].slots[iw]] ~= nil then
-						ccc = cc[ih][1]
+						ccc = cc[ih%channelsMax+1][1]
 					else
-						ccc = cc[ih][2]
+						ccc = cc[ih%channelsMax+1][2]
 					end
 					love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255, ccc[4]/255)
 					love.graphics.print(channels[ih].slots[iw], (pat+out)*(iw-1)+1 + pat/2-(timeburner40n:getWidth(channels[ih].slots[iw])*scale)/2+1+scrollApp[1],
@@ -884,7 +902,7 @@ function love.draw()
 
 		-- new channel button
 		-- button
-		if #channels < channelsMax then
+		if #channels < channelsMax or not channelLimit then
 			if popup == "" and not settingsWindow then
 				buttonCenter(res[1]-boxSize/2, res[2]-out*3, out*16, out*5, "addChannel")
 			end
@@ -896,7 +914,7 @@ function love.draw()
 			love.graphics.setColor(theme.light2)
 			delta.addChannel = Approach(delta.addChannel, 0, math.abs(delta.addChannel)/3)
 		end
-		if #channels >= channelsMax then
+		if #channels >= channelsMax and channelLimit then
 			love.graphics.setColor(theme.outline)
 		end
 		-- draw button
@@ -945,8 +963,12 @@ function love.draw()
 				local h = timeburner26n:getHeight("A")*(scale*1.1)
 				local x, y = res[1]-boxSize/2-w/2, res[2]-boxSize*0.8-h/2
 				PrintOutline(t, x, y, scale*1.15, scale*1.1, 1.15)
-				if not pass then -- *if pass, just more convenient*
-					buttonTopLeft(x, y, w, h, "renameChannel")
+				if not pass then -- *if pass*
+					if popup == "" then
+						w = timeburner26n:getWidth(t.."M")*(scale*1.15)
+						x = res[1]-boxSize/2-w/2
+						buttonTopLeft(x, y, w, h, "renameChannel")
+					end
 				end
 				if hover == "renameChannel" then
 					changedCursor = hover
@@ -987,7 +1009,7 @@ function love.draw()
 					end
 					delta[name] = Approach(delta[name], n*vol, math.abs(delta[name] - n*vol)/5)
 					local nnn = math.max(1, 2-delta[name])
-					love.graphics.setColor(cc[sel][1][1]/255*nnn, cc[sel][1][2]/255*nnn, cc[sel][1][3]/255*nnn, 0.35)
+					love.graphics.setColor(cc[sel%channelsMax+1][1][1]/255*nnn, cc[sel%channelsMax+1][1][2]/255*nnn, cc[sel%channelsMax+1][1][3]/255*nnn, 0.35)
 					love.graphics.rectangle("fill", (i - 1) * dist + vx, vy, bw, -math.min(boxSize-out*8, delta[name]*vh*0.85)*math.max(1, (settings.visualizerAcc/64)))
 				end
 			end
@@ -1070,6 +1092,7 @@ function love.draw()
 			end
 		end
 
+
 		---------------------------------------------
 
 		-- intro
@@ -1095,6 +1118,42 @@ function love.draw()
 
 		---------------------------------------------
 
+		-- notifications
+		local y
+		if notificationTime > 0 then
+			y = 1
+			notificationTime = notificationTime-1
+			notificationSpeed = 0
+			delta.notification = Approach(delta.notification, y, math.abs(delta.notification - y)/4)
+		else
+			y = 0
+			notificationSpeed = Approach(notificationSpeed, 1, 0.05)
+			delta.notification = Approach(delta.notification, y, notificationSpeed/10)
+		end
+
+		if delta.notification > 0 then
+			love.graphics.setFont(timeburner40n)
+			love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], 0.35)
+			local w, h = timeburner40n:getWidth(notification)*scale*0.9 + out*4, 40*scale*0.9 + out*2
+			local x, y = w*delta.notification*2-w*2, boxSize/6
+			w = w + out*7
+			h = h + out*1.5
+			if pressed then
+				if notificationTime ~= 0 then
+					buttonTopLeft(x, y, w, h, "notification")
+					if hover == "notification" then
+						notificationTime = 0
+					end
+				end
+			end
+			love.graphics.rectangle("fill", x, y, w, h)
+			love.graphics.setColor(theme.light1)
+			love.graphics.rectangle("fill", x, y, scale*4, h)
+			love.graphics.print(notification, x+out*6, y+out, 0, scale*0.9, scale*0.9)
+		end
+
+		---------------------------------------------
+
 		-- debug
 		if debug then
 			-- log
@@ -1116,6 +1175,17 @@ function love.draw()
 	pressed = false
 end
 
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+----------------------------------------------------------------------------
+
 function DrawInstrument()
 	if not selectedPat[1] then return end
 	if not channels[selectedPat[1]] then return end
@@ -1129,7 +1199,7 @@ function DrawInstrument()
 	-- chip
 	x = x + out*3
 	y = y + out*3
-	local ccc = cc[selectedPat[1]][1]
+	local ccc = cc[selectedPat[1]%channelsMax+1][1]
 	love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255, 0.075)
 	love.graphics.rectangle("fill", x, y, w, h)
 	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], 1/2)
@@ -1191,7 +1261,7 @@ function DrawTick(x, y, w, h, a, value, default, tickName)
 	-- tick
 	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], a)
 	love.graphics.rectangle("fill", x, y, w, h)
-	love.graphics.setColor(cc[sel][1][1]/255, cc[sel][1][2]/255, cc[sel][1][3]/255, a*val)
+	love.graphics.setColor(cc[sel%channelsMax+1][1][1]/255, cc[sel%channelsMax+1][1][2]/255, cc[sel%channelsMax+1][1][3]/255, a*val)
 	love.graphics.rectangle("fill", x, y, w, h)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a)
 	love.graphics.draw(s_shadow_box, x, y, 0, w/128, h/128)
@@ -1236,7 +1306,9 @@ function DrawSlider(x, y, w, h, cbool, a, value, default, max, min)
 	local mouse = love.mouse.isDown(1)
 	local def = love.mouse.isDown(3)
 
-	buttonTopLeft(x, y, w, h, sliderName)
+	if popup == "" then
+		buttonTopLeft(x, y, w, h, sliderName)
+	end
 	if delta[sliderName] == nil then
 		delta[sliderName] = 0
 	end
@@ -1245,7 +1317,7 @@ function DrawSlider(x, y, w, h, cbool, a, value, default, max, min)
 	-- slider
 	love.graphics.setColor(theme.outside[1], theme.outside[2], theme.outside[3], a)
 	love.graphics.rectangle("fill", x, y, w, h)
-	love.graphics.setColor(cc[sel][ccc][1]/255, cc[sel][ccc][2]/255, cc[sel][ccc][3]/255, a)
+	love.graphics.setColor(cc[sel%channelsMax+1][ccc][1]/255, cc[sel%channelsMax+1][ccc][2]/255, cc[sel%channelsMax+1][ccc][3]/255, a)
 	love.graphics.rectangle("fill", x, y, w*delta[sliderName], h)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], a/2)
 	love.graphics.draw(s_shadow_rect, x, y, 0, w/128, h/64)
@@ -1528,7 +1600,7 @@ function RenameChannel(noReset, t, n)
 end
 
 function AddChannel(noReset, t, n)
-	if #channels < channelsMax then
+	if #channels < channelsMax or not channelLimit then
 		t = t or text
 		while string.sub(t, string.len(t)) == " " do
 			t = string.sub(t, 1, string.len(t)-1)
@@ -1645,7 +1717,7 @@ function DrawSettings()
 	love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
 	love.graphics.setFont(timeburner40n)
 	love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupSaveSettings)
-	love.graphics.print("Channel name:", x-(timeburner40n:getWidth("Channel name:")*scale)/2, y-y/10, 0, scale, scale)
+	love.graphics.print("Name channel:", x-(timeburner40n:getWidth("Name channel:")*scale)/2, y-y/10, 0, scale, scale)
 end
 
 function DrawMenuTop(sss)
@@ -1685,7 +1757,7 @@ function DrawPopup(p)
 		-- app
 		if popup == p then
 			-- on
-			if #channels >= channelsMax then
+			if #channels >= channelsMax and channelLimit then
 				popup = ""
 			else
 				buttonCenter(x, y+h/2.4, out*16, out*5, "NameChannel")
@@ -1805,10 +1877,12 @@ function DrawPopup(p)
 		-- app
 		if popup == p then
 			-- on
-			if #channels >= channelsMax then
+			if #channels >= channelsMax and channelLimit then
 				popup = ""
 			else
-				buttonCenter(x, y+h/2.4, out*16, out*5, "RenameChannel")
+				if text ~= channels[selectedPat[1]].name then
+					buttonCenter(x, y+h/2.4, out*16, out*5, "RenameChannel")
+				end
 				buttonTopLeft(x-w/2+out*4+1, y+out+1, w-out*8-2, h/4-2, "textInput")
 				delta.popupRenameChannel = Approach(delta.popupRenameChannel, 1, math.abs(delta.popupRenameChannel - 1)/2)
 				if text == nil then
@@ -1846,7 +1920,7 @@ function DrawPopup(p)
 		love.graphics.rectangle("fill", x-w/2+out*4+1, y+out*2+1, w-out*8-2, h/5-2)
 		love.graphics.setFont(timeburner40n)
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.popupRenameChannel)
-		love.graphics.print("Rename:", x-(timeburner40n:getWidth("Rename:")*scale)/2, y-y/10, 0, scale, scale)
+		love.graphics.print("Channel name:", x-(timeburner40n:getWidth("Channel name:")*scale)/2, y-y/10, 0, scale, scale)
 
 		-- button
 		local stop = false
@@ -2192,7 +2266,7 @@ function love.keypressed(key)
 			end
 		elseif key == keybinds[dropdowns.Edit[10]][1] then		-- add channel
 			if not KeybindPass(dropdowns.Edit[10]) then return end
-			if popup ~= popups.addChannel and #channels < channelsMax then
+			if popup ~= popups.addChannel and (#channels < channelsMax or not channelLimit) then
 				popup = popups.addChannel
 			end
 		elseif key == keybinds[dropdowns.Edit[17]][1] then	-- channel settings
@@ -2219,8 +2293,10 @@ function love.keypressed(key)
 			elseif popup == "" then
 				if keyboardMode == keyboardModes.normal then
 					keyboardMode = keyboardModes.note
+					Notify("Mode: Note preview", 2*60)
 				elseif keyboardMode == keyboardModes.note then
 					keyboardMode = keyboardModes.normal
+					Notify("Mode: Normal", 2*60)
 				end
 			end
 		elseif key == "a" then
@@ -2303,6 +2379,9 @@ function updateRes(flag)
 	if leftCanvas ~= nil then
 		leftCanvas:release()
 	end
+	if rollCanvas ~= nil then
+		rollCanvas:release()
+	end
 	boxSize = math.min(res[1], res[2])/3.5
 	out = boxSize/50
 	scale = out/7
@@ -2310,8 +2389,10 @@ function updateRes(flag)
 	screenCanvas = love.graphics.newCanvas(res[1], res[2])
 	channelCanvas = love.graphics.newCanvas(math.floor(res[1]-boxSize-out*4+0.5)-math.ceil(boxSize/7), math.floor(boxSize-out*7+0.5))
 	leftCanvas = love.graphics.newCanvas(pat+out*2, math.floor(boxSize-out*7+0.5))
+	rollCanvas = love.graphics.newCanvas(pat+out*2, math.floor(boxSize-out*7+0.5))
 	channelCanvasSize = {channelCanvas:getWidth(), channelCanvas:getHeight()}
 	leftCanvasSize = {leftCanvas:getWidth(), leftCanvas:getHeight()}
+	rollCanvasSize = {rollCanvas:getWidth(), rollCanvas:getHeight()}
 	ScrollUpdate()
 end
 
@@ -2533,6 +2614,7 @@ function AddBar(n, v, noReset)
 	if not noReset then
 		AddUndo(datatypes.addBar, {n, v})
 	end
+	ScrollUpdate()
 end
 
 function RemoveBar(n, noReset)
@@ -2586,6 +2668,13 @@ function DrawLine(x1, y1, x2, y2)
 		x = x + stepx
 		y = y + stepy
 	end
+end
+
+function Notify(t, length)
+	delta.notification = 0
+	notificationSpeed = 1
+	notification = t
+	notificationTime = length
 end
 
 function AddUndo(datatype, data, noReset)
