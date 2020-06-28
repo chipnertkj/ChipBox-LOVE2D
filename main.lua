@@ -113,10 +113,12 @@ function love.load()
 		patterns = 0,
 		selectedPat = 0,
 		hoveredPat = 0,
-		shadowL = 0,
-		shadowR = 0,
-		shadowU = 0,
-		shadowD = 0,
+		channelShadowL = 0,
+		channelShadowR = 0,
+		channelShadowU = 0,
+		channelShadowD = 0,
+		rollShadowU = 0,
+		rollShadowD = 0,
 		instruments = 1,
 		notePreview = 0,
 		notification = 0
@@ -128,7 +130,8 @@ function love.load()
 		resizable = false,
 		autoSave = false,
 		sliderSmoothing = 3,
-		visualizerAcc = 64
+		visualizerAcc = 64,
+		rollSimple = false
 	}
 
 	sliders = 0
@@ -187,9 +190,9 @@ function love.load()
 				--	1		2		3		4		5		6		7		8		9		10				11						12				13				14				15			16		17
 			Edit = {"Undo", "Redo", "-", "Cut", "Copy", "Paste", "-", "Select All", "-", "Add Channel", "Remove Selected Channels", "-", "Insert Bar Before", "Insert Bar After", "Remove Bar", "-", "Song Settings"},
 
-			View = {"Theme", "-", "Fullscreen", "Resizable Window", "-", "Song Player"},
+			View = {"Theme", "-", "Fullscreen", "Resizable Window", "-", "Simple Piano Roll Layout", "Song Player"},
 
-			Help = {"About", "Documentation", "Release Notes", "-", "Give Feedback", "-", "Search...", "-", "Reset UI", "Force Restart"}
+			Help = {"About", "Documentation", "Release Notes", "-", "Check for Updates", "Give Feedback", "-", "Search...", "-", "Reset UI", "Force Restart"}
 		}
 
 		keybinds = {}
@@ -210,6 +213,7 @@ function love.load()
 		KeybindSet(dropdowns.Edit[14], "right", false, false, true)
 		KeybindSet(dropdowns.Edit[15], "delete", true)
 		KeybindSet(dropdowns.Edit[17], "q", true)
+		KeybindSet(dropdowns.View[6], "=", true)
 		KeybindSet("Mute", "m", true)
 
 
@@ -232,7 +236,7 @@ function love.load()
 			end
 		end
 
-		nKeys = octaves*nk+1
+		nKeys = (octaves+1)*nk+1
 
 
 		-- hey idiot try not using anything outside (-1, 1)
@@ -330,7 +334,8 @@ function love.load()
 		s_logo32 = love.graphics.newImage(dirSprites .. "logo32.png")
 		s_logo320 = love.graphics.newImage(dirSprites .. "logo320.png")
 		s_check = love.graphics.newImage(dirSprites .. "check.png")
-		s_highlight1 = love.graphics.newImage(dirSprites .. "highlight0.png")
+		s_highlight0 = love.graphics.newImage(dirSprites .. "highlight0.png")
+		s_highlight1 = love.graphics.newImage(dirSprites .. "highlight1.png")
 		s_highlight3 = love.graphics.newImage(dirSprites .. "highlight3.png")
 		s_shadow = love.graphics.newImage(dirSprites .. "shadow.png")
 		s_shadow_rect = love.graphics.newImage(dirSprites .. "shadow_rect.png")
@@ -551,7 +556,7 @@ function love.update(dt)
 							channelScrollStart[2] = channelScroll
 						end
 					end
-				else
+				elseif not love.mouse.isDown(2) then
 					channelScrolling = false
 					love.mouse.setVisible(true)
 				end
@@ -588,15 +593,24 @@ function love.update(dt)
 						if not love.mouse.isDown(2) then 
 							rollScrolling = false
 							love.mouse.setVisible(true)
+							RollScrollCheck()
 						else
-							rollScroll = {math.min(0, math.max(rollScrollMax[1], rollScrollStart[2][1]+(xx - rollScrollStart[1][1]))),
-								math.min(0, math.max(rollScrollMax[2], rollScrollStart[2][2]+(yy - rollScrollStart[1][2])))
-							}
-							love.mouse.setPosition(rollScrollStart[1][1], rollScrollStart[1][2])
-							rollScrollStart[2] = rollScroll
+							if settings.rollSimple then
+								rollScroll = {math.min(0, math.max(rollScrollMax[1], rollScrollStart[2][1]+(xx - rollScrollStart[1][1]))),
+									math.min(0, math.max(rollScrollMax[2], rollScrollStart[2][2]+(yy - rollScrollStart[1][2])))
+								}
+								love.mouse.setPosition(rollScrollStart[1][1], rollScrollStart[1][2])
+								rollScrollStart[2] = rollScroll
+							else
+								rollScroll = {rollScrollStart[2][1]+(xx - rollScrollStart[1][1]),
+									math.min(0, math.max(rollScrollMax[2], rollScrollStart[2][2]+(yy - rollScrollStart[1][2])))
+								}
+								love.mouse.setPosition(rollScrollStart[1][1], rollScrollStart[1][2])
+								rollScrollStart[2] = rollScroll
+							end
 						end
 					end
-				else
+				elseif not love.mouse.isDown(2) then
 					rollScrolling = false
 					love.mouse.setVisible(true)
 				end
@@ -608,6 +622,7 @@ function love.update(dt)
 	end
 end
 
+
 -- '########::'########:::::'###::::'##:::::'##:
 --  ##.... ##: ##.... ##:::'## ##::: ##:'##: ##:
 --  ##:::: ##: ##:::: ##::'##:. ##:: ##: ##: ##:
@@ -616,6 +631,7 @@ end
 --  ##:::: ##: ##::. ##:: ##.... ##: ##: ##: ##:
 --  ########:: ##:::. ##: ##:::: ##:. ###. ###::
 -- ........:::..:::::..::..:::::..:::...::...:::
+
 
 -- draw
 function love.draw()
@@ -637,7 +653,6 @@ function love.draw()
 		------------------------------
 
 		-- bg
-
 		hover = ""
 
 		-- logo
@@ -669,22 +684,22 @@ function love.draw()
 
 		rollScrollApp[1] = Approach(rollScrollApp[1], rollScroll[1], math.abs(rollScrollApp[1] - rollScroll[1])/3)
 		rollScrollApp[2] = Approach(rollScrollApp[2], rollScroll[2], math.abs(rollScrollApp[2] - rollScroll[2])/3)
-		log = "1 " .. tostring(rollScroll[1]) .. "\n2 " .. tostring(rollScroll[2])
 
 		-- piano canvas
 		love.graphics.setCanvas(pianoCanvas)
 		love.graphics.clear()
 
+		-- piano loop
 		local sep
-
 		do
-			local x, y, w, h, ww
+			local x, y, h
 			h = math.ceil(out*3)
 			sep = math.ceil(out/3)
 			x = sep
-			for ih = nKeys, 1, -1 do
+			for ih = 1, nKeys do
+				-- c
 				local t = nKeys-ih+1
-				t = string.sub(keyScales[song.key][(t-3)%(#keys)+1], 2, 2)
+				t = string.sub(keys[(t-1)%(#keys)+1], 2, 2)
 				local n
 				if t == "#" or t == "b" then
 					n = 0.2
@@ -692,8 +707,27 @@ function love.draw()
 					n = 0.55
 				end
 				love.graphics.setColor(theme.light1[1]*n, theme.light1[2]*n, theme.light1[3]*n)
-				y = (h+sep)*(ih-1)+sep
-				love.graphics.rectangle("fill", x, y + rollScrollApp[2], pianoCanvasSize[1], h)
+
+				-- draw
+				y = (h+sep)*(ih-1)+sep + rollScrollApp[2]
+				love.graphics.rectangle("fill", x, y, pianoCanvasSize[1], h)
+				if n == 0.2 then
+					love.graphics.setColor(theme.light1[1]*0.8, theme.light1[2]*0.8, theme.light1[3]*0.8, 0.3)
+				else
+					love.graphics.setColor(theme.outline)
+				end
+				love.graphics.draw(s_highlight1, pianoCanvasSize[1], y, 90*degToRad, h/32, h/32*3)
+
+				-- text
+				if n == 0.2 then
+					love.graphics.setColor(theme.light1[1]*0.8, theme.light1[2]*0.8, theme.light1[3]*0.8, 1)
+				else
+					love.graphics.setColor(theme.outline[1]*0.6, theme.outline[2]*0.6, theme.outline[3]*0.6)
+				end
+				t = nKeys-ih+1
+				local tt = keyScales[song.key][(t-1)%(#keys)+1]
+				if tt == "C" then tt = tt .. math.floor((t-1)/#keys) end
+				love.graphics.print(tt, sep*3, y, 0, h/30)
 			end
 		end
 
@@ -710,29 +744,73 @@ function love.draw()
 		love.graphics.setCanvas(rollCanvas)
 		love.graphics.clear()
 
+		-- roll loop
 		do
-			local x, y, w, h, ww
+			local x, y, w, h, ww, add
 			w, h = math.ceil(out*12), math.ceil(out*3)
 			ww = math.ceil(w*0.65)
-			for ih = nKeys, 1, -1 do
+			if settings.rollSimple then
+				add = 0
+			else
+				add = rollCanvasSize[1]/2-(song.beats/2*(w+sep))
+			end
+			local s = (w+sep)*song.beats
+			for ih = 1, nKeys do
 				local t = nKeys-ih+1
 				t = (t-3)%(#keys)+1
-				if t == 8 then
+				if t == 11 then
 					love.graphics.setColor(theme.keyC)
-				elseif t == 3 then
+				elseif t == 6 then
 					love.graphics.setColor(theme.keyG)
 				else
 					love.graphics.setColor(theme.outside)
 				end
-				for iw = song.beats, 1, -1 do
+				for iw = 1, song.beats do
 					x, y = (w+sep)*(iw-1), (h+sep)*(ih-1)+sep
-					love.graphics.rectangle("fill", x + rollScrollApp[1], y + rollScrollApp[2], w, h)
+					love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+				end
+			end
+			if not settings.rollSimple then
+				love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], 0.75)
+				for ih = 1, nKeys do
+					for iw = 1, song.beats do
+						x, y = (w+sep)*(iw-1)-s-sep, (h+sep)*(ih-1)+sep
+						love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+					end
+				end
+				for ih = 1, nKeys do
+					for iw = 1, song.beats do
+						x, y = (w+sep)*(iw-1)+s, (h+sep)*(ih-1)+sep
+						love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+					end
 				end
 			end
 		end
-
+		-- check
 		if rollScrolling then
 			hover = ""
+		end
+
+		-- shadows
+		do
+			local w = rollCanvasSize[1]
+			if rollScrollApp[2] < -out*2 then
+				delta.rollShadowU = Approach(delta.rollShadowU, 1, math.abs(delta.rollShadowU - 1)/3)
+			else
+				delta.rollShadowU = Approach(delta.rollShadowU, 0, math.abs(delta.rollShadowU)/3)
+			end
+			if rollScrollMax[2]+out*2 < rollScrollApp[2] then
+				delta.rollShadowD = Approach(delta.rollShadowD, 1, math.abs(delta.rollShadowD - 1)/3)
+			else
+				delta.rollShadowD = Approach(delta.rollShadowD, 0, math.abs(delta.rollShadowD)/3)
+			end
+			love.graphics.setColor(1, 1, 1)
+			love.graphics.draw(s_shadow, 0, w, -90*degToRad, w, scale*4)
+			love.graphics.draw(s_shadow, rollCanvasSize[1], 0, 90*degToRad, w, scale*4)
+			love.graphics.setColor(1, 1, 1, delta.rollShadowU)
+			love.graphics.draw(s_shadow, 0, 0, 0, rollCanvasSize[1], scale*4)
+			love.graphics.setColor(1, 1, 1, delta.rollShadowD)
+			love.graphics.draw(s_shadow, rollCanvasSize[1], rollCanvasSize[2], 180*degToRad, rollCanvasSize[1], scale*4)
 		end
 
 		-- draw roll canvas
@@ -964,32 +1042,32 @@ function love.draw()
 			
 			-- shadows l r u d
 			if channelScrollApp[1] < -out*2 then
-				delta.shadowL = Approach(delta.shadowL, 1, math.abs(delta.shadowL - 1)/3)
+				delta.channelShadowL = Approach(delta.channelShadowL, 1, math.abs(delta.channelShadowL - 1)/3)
 			else
-				delta.shadowL = Approach(delta.shadowL, 0, math.abs(delta.shadowL)/3)
+				delta.channelShadowL = Approach(delta.channelShadowL, 0, math.abs(delta.channelShadowL)/3)
 			end
 			if channelScrollMax[1]+out*2 < channelScrollApp[1] then
-				delta.shadowR = Approach(delta.shadowR, 1, math.abs(delta.shadowR - 1)/3)
+				delta.channelShadowR = Approach(delta.channelShadowR, 1, math.abs(delta.channelShadowR - 1)/3)
 			else
-				delta.shadowR = Approach(delta.shadowR, 0, math.abs(delta.shadowR)/3)
+				delta.channelShadowR = Approach(delta.channelShadowR, 0, math.abs(delta.channelShadowR)/3)
 			end
 			if channelScrollApp[2] < -out*2 then
-				delta.shadowU = Approach(delta.shadowU, 1, math.abs(delta.shadowU - 1)/3)
+				delta.channelShadowU = Approach(delta.channelShadowU, 1, math.abs(delta.channelShadowU - 1)/3)
 			else
-				delta.shadowU = Approach(delta.shadowU, 0, math.abs(delta.shadowU)/3)
+				delta.channelShadowU = Approach(delta.channelShadowU, 0, math.abs(delta.channelShadowU)/3)
 			end
 			if channelScrollMax[2]+out*2 < channelScrollApp[2] then
-				delta.shadowD = Approach(delta.shadowD, 1, math.abs(delta.shadowD - 1)/3)
+				delta.channelShadowD = Approach(delta.channelShadowD, 1, math.abs(delta.channelShadowD - 1)/3)
 			else
-				delta.shadowD = Approach(delta.shadowD, 0, math.abs(delta.shadowD)/3)
+				delta.channelShadowD = Approach(delta.channelShadowD, 0, math.abs(delta.channelShadowD)/3)
 			end
-			love.graphics.setColor(1, 1, 1, delta.shadowL)
+			love.graphics.setColor(1, 1, 1, delta.channelShadowL)
 			love.graphics.draw(s_shadow, 0, (out+pat)*#channels+out+1, -90*degToRad, (out+pat)*#channels+out+1, scale*4)
-			love.graphics.setColor(1, 1, 1, delta.shadowR)
+			love.graphics.setColor(1, 1, 1, delta.channelShadowR)
 			love.graphics.draw(s_shadow, channelCanvasSize[1], 0, 90*degToRad, (out+pat)*#channels+out+1, scale*4)
-			love.graphics.setColor(1, 1, 1, delta.shadowU)
+			love.graphics.setColor(1, 1, 1, delta.channelShadowU)
 			love.graphics.draw(s_shadow, 0, 0, 0, channelCanvasSize[1], scale*4)
-			love.graphics.setColor(1, 1, 1, delta.shadowD)
+			love.graphics.setColor(1, 1, 1, delta.channelShadowD)
 			love.graphics.draw(s_shadow, channelCanvasSize[1], channelCanvasSize[2], 180*degToRad, channelCanvasSize[1], scale*4)
 
 			-- draw channel canvas
@@ -1070,7 +1148,7 @@ function love.draw()
 		-- draw button
 		love.graphics.draw(s_plus, res[1]-boxSize/1.95, res[2]-out*3.5, 0, out/7, out/7, 18/2*(out/7), 18/2*(out/7))
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.addChannel)
-		love.graphics.draw(s_highlight1, res[1]-boxSize/2, math.ceil(res[2]-out*3.8), 0, scale*delta.addChannel*0.8, scale*0.73, 172/2, 30/2)
+		love.graphics.draw(s_highlight0, res[1]-boxSize/2, math.ceil(res[2]-out*3.8), 0, scale*delta.addChannel*0.8, scale*0.73, 172/2, 30/2)
 		love.graphics.draw(s_highlight3, res[1]-boxSize/2, math.ceil(res[2]-out*3.8), 0, scale*delta.addChannel*0.8, scale*0.73, 172/2, 30/2)
 
 		-- channel 2. app and text 
@@ -1085,7 +1163,7 @@ function love.draw()
 			love.graphics.setFont(timeburner26n)
 			love.graphics.setColor(theme.light1)
 			love.graphics.setColor(theme.outline)
-			love.graphics.draw(s_highlight1, res[1]-boxSize/2, res[2]-boxSize*0.8, 180*degToRad, scale*1.30, scale*1.01, 172/2, 35/2)
+			love.graphics.draw(s_highlight0, res[1]-boxSize/2, res[2]-boxSize*0.8, 180*degToRad, scale*1.30, scale*1.01, 172/2, 35/2)
 			if selectedPat[1] then
 				local pass
 				local t = channels[selectedPat[1]].name
@@ -1325,6 +1403,7 @@ function love.draw()
 	pressed = false
 end
 
+
 -- '########::'########:::::'###::::'##:::::'##:
 --  ##.... ##: ##.... ##:::'## ##::: ##:'##: ##:
 --  ##:::: ##: ##:::: ##::'##:. ##:: ##: ##: ##:
@@ -1333,6 +1412,7 @@ end
 --  ##:::: ##: ##::. ##:: ##.... ##: ##: ##: ##:
 --  ########:: ##:::. ##: ##:::: ##:. ###. ###::
 -- ........:::..:::::..::..:::::..:::...::...:::
+
 
 function DrawInstrument()
 	if not selectedPat[1] then return end
@@ -1380,6 +1460,7 @@ end
 function ApplyEffects(ins, src)
 	if not ins then
 		if not selectedPat[1] then return end
+		if not channels[selectedPat[1]] then return end
 		ins = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument]
 	end
 	if src then
@@ -1568,7 +1649,7 @@ function WrapSource(channel, freq, src)
 
 	-- setup
 	local s = ins.source[src]
-	ApplyEffects(ins)
+	ApplyEffects()
 	s:setLooping(true)
 end
 
@@ -1591,10 +1672,6 @@ function Play(channel, freq, key)
 	if not src then src = song.chordSize end
 
 	channels[channel].playing[src] = key
-	log = ""
-	for i = 1, song.chordSize do
-		log = log .. tostring(channels[channel].playing[i] or "-") .. "\n"
-	end
 	local s = ins.source[src]
 	GenerateSamples(channel, freq, src)
 	s = ins.source[src]
@@ -1630,11 +1707,6 @@ function Stop(channel, key)
 	end
 	channels[channel].playing[source] = nil
 	ins.source[source]:stop()
-
-	log = ""
-	for i = 1, song.chordSize do
-		log = log .. tostring(channels[channel].playing[i] or "-") .. "\n"
-	end
 end
 
 function NotePreview(key, play)
@@ -1816,6 +1888,7 @@ function AddChannel(noReset, t, n)
 
 				selection = {{}, {}}
 				ChannelScrollUpdate()
+				RollScrollReset(1)
 			end
 		else
 			popup = ""
@@ -1975,7 +2048,7 @@ function DrawPopup(p)
 		end
 		love.graphics.draw(s_check, x-out*1.5, math.ceil(y+h/2.5)-out, 0, out/7*0.6, out/7*0.6)
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.nameChannel)
-		love.graphics.draw(s_highlight1, x, math.ceil(y+h/2.5-1), 0, scale*delta.nameChannel*0.8, scale*0.73, 172/2, 28/2)
+		love.graphics.draw(s_highlight0, x, math.ceil(y+h/2.5-1), 0, scale*delta.nameChannel*0.8, scale*0.73, 172/2, 28/2)
 		love.graphics.draw(s_highlight3, x, math.ceil(y+h/2.5-1), 0, scale*delta.nameChannel*0.8, scale*0.73, 172/2, 28/2)
 		
 		-- text
@@ -2097,7 +2170,7 @@ function DrawPopup(p)
 		end
 		love.graphics.draw(s_check, x-out*1.5, math.ceil(y+h/2.5)-out, 0, out/7*0.6, out/7*0.6)
 		love.graphics.setColor(theme.light1[1], theme.light1[2], theme.light1[3], delta.renameChannel)
-		love.graphics.draw(s_highlight1, x, math.ceil(y+h/2.5-1), 0, scale*delta.renameChannel*0.8, scale*0.73, 172/2, 28/2)
+		love.graphics.draw(s_highlight0, x, math.ceil(y+h/2.5-1), 0, scale*delta.renameChannel*0.8, scale*0.73, 172/2, 28/2)
 		love.graphics.draw(s_highlight3, x, math.ceil(y+h/2.5-1), 0, scale*delta.renameChannel*0.8, scale*0.73, 172/2, 28/2)
 		
 		-- text
@@ -2267,7 +2340,7 @@ function buttonTopLeft(x, y, w, h, b)
 	end
 end
 
-function MovePattern(key)
+function MovePattern(key, ss)
 	love.keyboard.setKeyRepeat(true)
 	if textSelected then
 		if key == "left" then
@@ -2282,7 +2355,7 @@ function MovePattern(key)
 		local sel = false
 		if key == "left" or key == "right" or key == "down" or key == "up" then
 			if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
-				sel = true
+				sel = not ss
 			else
 				moveSelect = false
 			end
@@ -2306,6 +2379,7 @@ function MovePattern(key)
 			elseif delta.channels < 0.001 then
 				selectedPat = {1, 1}
 			end
+			RollScrollReset(1)
 		elseif key == "right" then
 			if selectedPat[2] ~= nil then
 				canMult = false
@@ -2316,6 +2390,7 @@ function MovePattern(key)
 			elseif delta.channels < 0.001 then
 				selectedPat = {1, 1}
 			end
+			RollScrollReset(1)
 		elseif key == "up" then
 			if selectedPat[1] ~= nil then
 				Stop(selectedPat[1])
@@ -2327,6 +2402,7 @@ function MovePattern(key)
 			elseif delta.channels < 0.001 then
 				selectedPat = {1, 1}
 			end
+			RollScrollReset(2)
 		elseif key == "down" then
 			if selectedPat[1] ~= nil then
 				Stop(selectedPat[1])
@@ -2338,6 +2414,7 @@ function MovePattern(key)
 			elseif delta.channels < 0.001 then
 				selectedPat = {1, 1}
 			end
+			RollScrollReset(2)
 		end
 
 		if sel then
@@ -2428,9 +2505,9 @@ function love.keypressed(key)
 		elseif key == keybinds["Mute"][1] then	-- mute
 			if not KeybindPass("Mute") then return end
 			if not selectedPat[1] then return end
-			channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].active =
-			not channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument].active
-			ApplyEffects(selectedPat[1])
+			local ins = channels[selectedPat[1]].instruments[channels[selectedPat[1]].instrument]
+			ins.active = not ins.active
+			ApplyEffects(ins)
 		elseif key == "return" then
 			if textSelected then
 				if popup == popups.addChannel then
@@ -2484,6 +2561,10 @@ function love.keypressed(key)
 				Undo()
 			end
 		end
+	elseif key == "=" then
+		love.keyboard.setKeyRepeat(true)
+		song.beats = song.beats+1
+		RollScrollUpdate()
 	end
 end
 
@@ -2545,6 +2626,8 @@ function updateRes(flag)
 	pianoCanvasSize = {pianoCanvas:getWidth(), pianoCanvas:getHeight()}
 	ChannelScrollUpdate()
 	RollScrollUpdate()
+	RollScrollReset(1)
+	RollScrollReset(2)
 end
 
 function love.resize()
@@ -2621,6 +2704,7 @@ function love.mousepressed(xx, yy, b)
 					selection[2] = {}
 				end
 				selection[1] = {tonumber(ph), tonumber(pw)}
+				RollScrollReset(1)
 			end
 		elseif hover == dropdowns.File[1] then	-- New File
 			NewFile()
@@ -2654,6 +2738,10 @@ function love.mousepressed(xx, yy, b)
 			AddBar(selectedPat[2]+1)
 		elseif hover == dropdowns.Edit[15] then	-- remove bar
 			RemoveBar(selectedPat[2])
+		elseif hover == dropdowns.View[6] then	-- simple roll
+			settings.rollSimple = not settings.rollSimple
+			RollScrollReset(1)
+			RollScrollSnap()
 		end
 		if string.match(hover, "(channel)%d+") == "channel" then
 			dropdown = "ch" .. string.match(hover, "channel(%d+)")
@@ -2722,7 +2810,17 @@ function love.wheelmoved(_, y)
 	sliderScroll = sliderScroll + y
 	if delta.channels < 0.001 then
 		if popup == "" and not settingsWindow then
-			if hoverPattern then
+			if hoverRoll then
+				local sep = math.ceil(out/3)
+				local w, h = math.ceil(out*12)+sep, math.ceil(out*3)+sep
+				if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+					rollScroll[1] = rollScroll[1] + y*w
+				else
+					rollScroll[2] = rollScroll[2] + y*h*3
+				end
+				RollScrollSet()
+				RollScrollCheck()
+			elseif hoverPattern then
 				if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
 					channelScroll[1] = math.min(0, math.max(channelScrollMax[1], channelScroll[1] + y*(pat+out)))
 				else
@@ -2734,8 +2832,9 @@ function love.wheelmoved(_, y)
 end
 
 function ChannelScrollUpdate()
-	channelScrollMax[1] = -((pat+out)*(song.length-(res[1]-boxSize)/(pat+out)+1)+out*4)
-	channelScrollMax[2] = -((pat+out)*(#channels-boxSize/(pat+out)+1)+out*2)
+	local s = pat+out
+	channelScrollMax[1] = -(s*(song.length 	- channelCanvasSize[1]/s) + out)
+	channelScrollMax[2] = -(s*(#channels 	- channelCanvasSize[2]/s) + out*2)
 	MovePattern("")
 end
 
@@ -2747,9 +2846,54 @@ function ChannelScrollSet()
 end
 
 function RollScrollUpdate()
-	local w, h = math.ceil(out*12), math.ceil(out*3)
-	rollScrollMax[1] = (w*(song.beats-rollCanvasSize[1]/w))
-	rollScrollMax[2] = -(h*(nKeys-rollCanvasSize[2]/h+1))
+	local w, h, sep
+	sep = math.ceil(out/3)
+	w, h = math.ceil(out*12) + sep, math.ceil(out*3) + sep
+	rollScrollMax[1] = -((song.beats-rollCanvasSize[1]/w)*w + sep)
+	rollScrollMax[2] = -((nKeys-rollCanvasSize[2]/h)*h + sep)
+	RollScrollSet()
+end
+
+function RollScrollSet()
+	if settings.rollSimple then
+		rollScroll = {math.min(0, math.max(rollScrollMax[1], rollScroll[1])),
+			math.min(0, math.max(rollScrollMax[2], rollScroll[2]))
+		}
+	else
+		rollScroll = {rollScroll[1],
+			math.min(0, math.max(rollScrollMax[2], rollScroll[2]))
+		}
+	end
+end
+
+function RollScrollReset(n)
+	if n == 1 then
+		if settings.rollSimple then
+			rollScroll[1] = 0
+		else
+			rollScroll[1] = 0
+		end
+	else
+		rollScroll[2] = 0
+	end
+end
+
+function RollScrollSnap()
+	rollScrollApp[1] = rollScroll[1]
+	rollScrollApp[2] = rollScroll[2]
+end
+
+function RollScrollCheck()
+	local val = math.max(1, song.beats/2+4)*(math.ceil(out*12)+math.abs(out/3))
+	if rollScroll[1] > val then
+		rollScrollApp[1] = -rollScroll[1]/5
+		rollScroll[1] = rollScroll[1] - rollScrollMax[1]
+		MovePattern("left", true)
+	elseif rollScroll[1] < -val then
+		rollScrollApp[1] = -rollScroll[1]/5
+		rollScroll[1] = rollScroll[1] - rollScrollMax[1]
+		MovePattern("right", true)
+	end
 end
 
 function SelectAll()
@@ -2930,7 +3074,6 @@ function Redo()
 		AddUndo(this.datatype, this.data, true)
 		
 		table.remove(redos, 1)
-		ChannelScrollSet()
 		ChannelScrollUpdate()
 	end
 end
