@@ -93,7 +93,7 @@ function love.load()
 		chordSize = 10,
 		instruments = 1,
 		beats = 8,
-		rythm = 4,
+		rhythm = 4,
 		tempo = 120,
 		sampleSize = 64,
 		key = 1
@@ -169,6 +169,11 @@ function love.load()
 	notification = ""
 	notificationTime = 0
 	notificationSpeed = 0
+	rollZoom = 1
+	preview = {}
+	isPlacing = false
+	placingStart = {}
+	placing = {2, {1, 1}}
 
 	Notify("New Song", 5*60)
 
@@ -539,7 +544,7 @@ function love.update(dt)
 			if popup == "" and not settingsWindow then
 				if hoverPattern then
 					if not channelScrolling then
-						if love.mouse.isDown(2) then 
+						if love.mouse.isDown(2) and not rollScrolling then 
 							channelScrolling = true
 							channelScrollStart = {{xx, yy}, channelScroll}
 							love.mouse.setVisible(false)
@@ -567,9 +572,9 @@ function love.update(dt)
 		end
 
 		-- roll scroll
-		x, y = out+pianoCanvasSize[1], res[2]*(1-delta.roll)+res[2]/35+out
+		x, y = out+pianoCanvasSize[1], res[2]/35+out
 
-		w, h = rollCanvasSize[1], rollCanvasSize[1]
+		w, h = rollCanvasSize[1], rollCanvasSize[2]
 
 		hoverRoll = false
 		if delta.roll > 0 and not channelScrolling then
@@ -584,7 +589,7 @@ function love.update(dt)
 			if popup == "" and not settingsWindow then
 				if hoverRoll then
 					if not rollScrolling then
-						if love.mouse.isDown(2) then 
+						if love.mouse.isDown(2) and not channelScrolling then
 							rollScrolling = true
 							rollScrollStart = {{xx, yy}, rollScroll}
 							love.mouse.setVisible(false)
@@ -663,6 +668,8 @@ function love.draw()
 		
 		------------------------------
 
+		-- (well optimized code; not perfect, but theres really no point in trying further)
+		-- i mean i definitely can optimize hover detection mechanisms here to make it run song.rhythm times faster but whatever
 		-- piano roll
 		-- outside
 		local x, y, w, h = 0, res[2]*(1-delta.roll)+res[2]/35, res[1]-boxSize, res[2]-boxSize-out*5
@@ -693,7 +700,7 @@ function love.draw()
 		local sep
 		do
 			local x, y, h
-			h = math.ceil(out*3)
+			h = math.ceil(out*3)*rollZoom
 			sep = math.ceil(out/3)
 			x = sep
 			for ih = 1, nKeys do
@@ -709,7 +716,7 @@ function love.draw()
 				love.graphics.setColor(theme.light1[1]*n, theme.light1[2]*n, theme.light1[3]*n)
 
 				-- draw
-				y = (h+sep)*(ih-1)+sep + rollScrollApp[2]
+				y = (h+sep)*(ih-1)+sep + rollScrollApp[2]/rollZoom
 				love.graphics.rectangle("fill", x, y, pianoCanvasSize[1], h)
 				if n == 0.2 then
 					love.graphics.setColor(theme.light1[1]*0.8, theme.light1[2]*0.8, theme.light1[3]*0.8, 0.3)
@@ -727,7 +734,7 @@ function love.draw()
 				t = nKeys-ih+1
 				local tt = keyScales[song.key][(t-1)%(#keys)+1]
 				if tt == "C" then tt = tt .. math.floor((t-1)/#keys) end
-				love.graphics.print(tt, sep*3, y, 0, h/30)
+				love.graphics.print(tt, sep*3, y, 0, math.min(h/30, pianoCanvasSize[1]/60))
 			end
 		end
 
@@ -747,7 +754,7 @@ function love.draw()
 		-- roll loop
 		do
 			local x, y, w, h, ww, add
-			w, h = math.ceil(out*12), math.ceil(out*3)
+			w, h = math.ceil(out*12)*rollZoom, math.ceil(out*3)*rollZoom
 			ww = math.ceil(w*0.65)
 			if settings.rollSimple then
 				add = 0
@@ -755,6 +762,15 @@ function love.draw()
 				add = rollCanvasSize[1]/2-(song.beats/2*(w+sep))
 			end
 			local s = (w+sep)*song.beats
+			local check
+			if hoverRoll then
+				if popup == "" and not settingsWindow then
+					check = true
+				end
+			end
+
+			-- main loop
+			local hx, hy = out+pianoCanvasSize[1]+sep, res[2]*(1-delta.roll)+res[2]/35+out
 			for ih = 1, nKeys do
 				local t = nKeys-ih+1
 				t = (t-3)%(#keys)+1
@@ -766,26 +782,85 @@ function love.draw()
 					love.graphics.setColor(theme.outside)
 				end
 				for iw = 1, song.beats do
-					x, y = (w+sep)*(iw-1), (h+sep)*(ih-1)+sep
-					love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+					x, y = (w+sep)*(iw-1) + rollScrollApp[1]/rollZoom + add, (h+sep)*(ih-1)+sep + rollScrollApp[2]/rollZoom
+					local pass
+					if x+w*2 > hx and x < hx+rollCanvasSize[1] then
+						if y+h*5 > hy and y < hy+rollCanvasSize[2] then
+							pass = true
+						end
+					end
+					if pass then
+						love.graphics.rectangle("fill", x, y, w, h)
+						if check then
+							for i = 1, song.rhythm do
+								local bw, bh = (w+sep)/song.rhythm, h+sep
+								local bx, by = (x + bw*(i-1)) + hx, y + hy
+								local sx, sy
+								if xx > bx then
+									if xx < bx+bw then
+										sx = (iw-1)*song.rhythm+i
+									end
+								end
+								if yy > by then
+									if yy < by+bh then
+										sy = ih
+									end
+								end
+								if sx and sy then hover = "iw" .. sx .. "ih" .. sy end
+							end
+						end
+					end
 				end
 			end
+
+			-- preview loop
 			if not settings.rollSimple then
 				love.graphics.setColor(theme.outline[1], theme.outline[2], theme.outline[3], 0.75)
 				for ih = 1, nKeys do
 					for iw = 1, song.beats do
-						x, y = (w+sep)*(iw-1)-s-sep, (h+sep)*(ih-1)+sep
-						love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+						x, y = (w+sep)*(iw-1) + rollScrollApp[1]/rollZoom + add - s, (h+sep)*(ih-1)+sep + rollScrollApp[2]/rollZoom
+						if x+w*2 > hx and x < hx+rollCanvasSize[1] then
+							if y+h*5 > hy and y < hy+rollCanvasSize[2] then
+								love.graphics.rectangle("fill", x, y, w, h)
+							end
+						end
 					end
 				end
 				for ih = 1, nKeys do
 					for iw = 1, song.beats do
-						x, y = (w+sep)*(iw-1)+s, (h+sep)*(ih-1)+sep
-						love.graphics.rectangle("fill", x + rollScrollApp[1] + add, y + rollScrollApp[2], w, h)
+						x, y = (w+sep)*(iw-1) + rollScrollApp[1]/rollZoom + add + s, (h+sep)*(ih-1)+sep + rollScrollApp[2]/rollZoom
+						if x+w*2 > hx and x < hx+rollCanvasSize[1] then
+							if y+h*5 > hy and y < hy+rollCanvasSize[2] then
+								love.graphics.rectangle("fill", x, y, w, h)
+							end
+						end
+					end
+				end
+			end
+
+			-- draw notes
+			local ch = channels[selectedPat[1]]
+			if ch then
+				if ch.patterns[ch.slots[selectedPat[2]]] then
+					for i = 1, #ch.patterns[ch.slots[selectedPat[2]]] do
+						local note = ch.patterns[ch.slots[selectedPat[2]]][i]
+						local ccc = cc[selectedPat[1]%channelsMax+1][1]
+						love.graphics.setColor(ccc[1]/255, ccc[2]/255, ccc[3]/255)
+						local pos = {}
+						log = ""
+						for j = 1, #note.pos/2 do
+							local ii = (j-1)*2+1
+							pos[ii] = (w+sep)/(song.beats/2)*((note.pos[ii]-1)) + rollScrollApp[1]/rollZoom + add
+							pos[ii+1] = (h+sep)*(note.pos[ii+1]-0.5)+sep + rollScrollApp[2]/rollZoom
+							log = log .. pos[ii] .. " " .. pos[ii+1] .. "\n"
+						end
+						pos[(#note.pos/2-1)*2+1] = pos[(#note.pos/2-1)*2+1] - sep
+						love.graphics.line(pos)
 					end
 				end
 			end
 		end
+
 		-- check
 		if rollScrolling then
 			hover = ""
@@ -2515,7 +2590,9 @@ function love.keypressed(key)
 				elseif popup == popups.renameChannel then
 					RenameChannel()
 				end
-			elseif popup == "" then
+			end
+		elseif key == "tab" then
+			if popup == "" and not settingsWindow then
 				if keyboardMode == keyboardModes.normal then
 					keyboardMode = keyboardModes.note
 					Notify("Mode: Note preview", 2*60)
@@ -2637,6 +2714,7 @@ end
 function love.mousereleased(_, _, b)
 	if b == 1 then
 		if popup == "" and not settingsWindow then
+			PlaceNote(false)
 			if hover == "" or string.match(hover, "(ch)%d+") == "ch" then
 				if selection[1][1] ~= nil and selection[2][1] == nil then
 					selection[2] = {tonumber(ph), tonumber(pw)}
@@ -2676,7 +2754,8 @@ function love.mousepressed(xx, yy, b)
 		end
 	end
 	if b == 1 then
-		if popup == "" then
+		if popup == "" and not settingsWindow then
+			PlaceNote(true)
 			pressed = true
 		end
 		if hover == "addChannel" then
@@ -2753,6 +2832,20 @@ function love.mousepressed(xx, yy, b)
 			dropdown = ""
 			delta.dropdown = 0
 		end
+	elseif b == 2 then
+		if hover == "renameChannel" then
+			if popup == "" and not settingsWindow then
+				Notify(channels[selectedPat[1]].name, 60*2)
+			end
+		end
+	elseif b == 3 then
+		if hoverRoll then
+			if popup == "" and not settingsWindow then
+				rollZoom = 1
+				RollScrollUpdate()
+				RollScrollReset(1)
+			end
+		end
 	end
 end
 
@@ -2811,15 +2904,21 @@ function love.wheelmoved(_, y)
 	if delta.channels < 0.001 then
 		if popup == "" and not settingsWindow then
 			if hoverRoll then
-				local sep = math.ceil(out/3)
-				local w, h = math.ceil(out*12)+sep, math.ceil(out*3)+sep
-				if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
-					rollScroll[1] = rollScroll[1] + y*w
+				if love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl") then
+					rollZoom = math.min(3, math.max(0.5, rollZoom + y/10))
+					RollScrollUpdate()
+					RollScrollReset(1)
 				else
-					rollScroll[2] = rollScroll[2] + y*h*3
+					local sep = math.ceil(out/3)
+					local w, h = math.ceil(out*12)+sep, math.ceil(out*3)+sep
+					if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
+						rollScroll[1] = rollScroll[1] + y*w
+					else
+						rollScroll[2] = rollScroll[2] + y*h*3
+					end
+					RollScrollSet()
+					RollScrollCheck()
 				end
-				RollScrollSet()
-				RollScrollCheck()
 			elseif hoverPattern then
 				if love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift") then
 					channelScroll[1] = math.min(0, math.max(channelScrollMax[1], channelScroll[1] + y*(pat+out)))
@@ -2848,9 +2947,9 @@ end
 function RollScrollUpdate()
 	local w, h, sep
 	sep = math.ceil(out/3)
-	w, h = math.ceil(out*12) + sep, math.ceil(out*3) + sep
-	rollScrollMax[1] = -((song.beats-rollCanvasSize[1]/w)*w + sep)
-	rollScrollMax[2] = -((nKeys-rollCanvasSize[2]/h)*h + sep)
+	w, h = math.ceil(out*12)*rollZoom + sep, math.ceil(out*3)*rollZoom + sep
+	rollScrollMax[1] = -((song.beats-rollCanvasSize[1]/w)*w + sep)*rollZoom
+	rollScrollMax[2] = -((nKeys-rollCanvasSize[2]/h)*h + sep)*rollZoom
 	RollScrollSet()
 end
 
@@ -2884,15 +2983,17 @@ function RollScrollSnap()
 end
 
 function RollScrollCheck()
-	local val = math.max(1, song.beats/2+4)*(math.ceil(out*12)+math.abs(out/3))
-	if rollScroll[1] > val then
-		rollScrollApp[1] = -rollScroll[1]/5
-		rollScroll[1] = rollScroll[1] - rollScrollMax[1]
-		MovePattern("left", true)
-	elseif rollScroll[1] < -val then
-		rollScrollApp[1] = -rollScroll[1]/5
-		rollScroll[1] = rollScroll[1] - rollScrollMax[1]
-		MovePattern("right", true)
+	if not settings.rollSimple then
+		local val = math.max(1, song.beats/2+4)*(math.ceil(out*12)+math.abs(out/3))
+		if rollScroll[1]/rollZoom > val*rollZoom then
+			rollScrollApp[1] = -rollScroll[1]/5
+			rollScroll[1] = rollScroll[1] - rollScrollMax[1]
+			MovePattern("left", true)
+		elseif rollScroll[1]/rollZoom < -val*rollZoom then
+			rollScrollApp[1] = -rollScroll[1]/5
+			rollScroll[1] = rollScroll[1] - rollScrollMax[1]
+			MovePattern("right", true)
+		end
 	end
 end
 
@@ -2989,6 +3090,47 @@ end
 
 function AddRedo(datatype, data)
 	table.insert(redos, 1, {datatype = datatype, data = data})
+end
+
+function PlaceNote(bool)
+	if not hoverRoll then isPlacing = false placingStart = {} return end
+	if hover:match("(iw)") ~= "iw" then isPlacing = false placingStart = {} return end
+	local pos = {hover:match("iw(%d+)"), hover:match("ih(%d+)")}
+	if bool then
+		isPlacing = true
+		placingStart = {pos[1], pos[2]}
+	else
+		if isPlacing then
+			local ch = channels[selectedPat[1]]
+			if ch.slots[selectedPat[2]] == 0 then
+				local p
+				for i = 1, song.patterns do
+					if p then break end
+					if not ch.patterns[i] then
+						p = i
+					end
+				end
+				if not p then
+					song.patterns = song.patterns + 1
+					p = song.patterns
+				end
+				ch.slots[selectedPat[2]] = p
+			end
+			if not ch.patterns[ch.slots[selectedPat[2]]] then
+				ch.patterns[ch.slots[selectedPat[2]]] = {}
+			end
+
+			local val
+			if placingStart[1] == pos[1] and placingStart[2] == pos[2] then
+				table.insert(ch.patterns[ch.slots[selectedPat[2]]], {vol = {}, pos = {placingStart[1], placingStart[2], math.min(placingStart[1]+placing[1], song.beats*song.rhythm+1), placingStart[2]}})
+			else
+				-- if placingStart[1] < pos[1]+1 then
+					table.insert(ch.patterns[ch.slots[selectedPat[2]]], {vol = {}, pos = {placingStart[1], placingStart[2], math.min(pos[1]+1, song.beats*song.rhythm), placingStart[2]}})
+					placing[1] = math.abs(placingStart[1]-pos[1]-1)
+				-- end
+			end
+		end
+	end
 end
 
 function Undo()
