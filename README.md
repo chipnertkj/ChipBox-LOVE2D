@@ -1,4 +1,6 @@
 # ChipBox
+Hello! This repository holds an older version of ChipBox that was never finished and will no longer recieve updates.
+
 So how does this thing work? Edit, pull... commit... uhhhhhhhhhhhhhhhh... whatever.
 
 ![alt text](https://raw.githubusercontent.com/chipnertkj/ChipBox/master/logo_wide.png)
