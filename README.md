@@ -3,7 +3,7 @@ Hello! This repository holds an older version of ChipBox that was never finished
 
 So how does this thing work? Edit, pull... commit... uhhhhhhhhhhhhhhhh... whatever.
 
-![alt text](https://raw.githubusercontent.com/chipnertkj/ChipBox/master/logo_wide.png)
+![alt text](https://raw.githubusercontent.com/chipnertkj/ChipBox-LOVE2D/master/logo_wide.png)
 
 Welcome to ChipBox's repository, I guess.
 
